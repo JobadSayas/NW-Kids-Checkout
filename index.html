@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Children Calling System</title>
+    <title>NW Kids Checout</title>
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
@@ -26,8 +26,8 @@
 <body class="min-h-screen px-6 py-4 md:pr-2 relative bg-white overflow-hidden h-[100vh]">
     <!-- Background images -->
     <div class="absolute inset-0 z-0 overflow-hidden">
-      <img src="bg-left.svg" alt="" class="absolute left-0 bottom-0 h-[300px] w-auto  m:h-auto object-cover object-bottom lg:h-auto lg:w-[100%] z-10">
-      <img src="bg-right.svg" alt="" class="absolute right-0 bottom-0 h-[200px] w-auto  m:h-auto object-cover object-bottom lg:h-auto lg:w-[40%] z-0">
+      <img src="bg-left.svg" alt="" class="absolute left-0 bottom-0 h-[300px] w-auto m:h-auto object-cover object-bottom lg:h-auto lg:w-[100%] z-10">
+      <img src="bg-right.svg" alt="" class="absolute right-0 bottom-0 h-[200px] w-auto m:h-auto object-cover object-bottom lg:h-auto lg:w-[40%] z-0">
     </div>
         
     <!-- Header -->
@@ -51,17 +51,17 @@
                 <div class="w-full">
                     <div class="text-left">
                         <!-- Name -->
-                        <div class="text-4xl md:text-6xl lg:text-7xl text-gray-800 mb-1 md:mb-3">
-                            Matthew Thompson
+                        <div id="current-child-name" class="font-bold text-4xl md:text-6xl lg:text-7xl text-gray-800 mb-1 md:mb-3">
+                            Loading...
                         </div>
                         
                         <!-- Code and time - Same line in mobile -->
                         <div class="flex items-center">
-                            <div class="text-4xl md:text-6xl font-bold text-black mr-4">
-                                Y8F1
+                            <div id="current-child-code" class="text-4xl md:text-6xl text-black mr-4">
+                                ...
                             </div>
-                            <div class="text-xl md:text-2xl text-white bg-gray-400 px-3 py-1 md:px-2 md:py-1 rounded-md">
-                                2 min ago
+                            <div id="current-child-time" class="text-xl md:text-2xl text-white bg-gray-400 px-3 py-1 md:px-2 md:py-1 rounded-md">
+                                0 min ago
                             </div>
                         </div>
                     </div>
@@ -74,110 +74,10 @@
                     <h2 class="text-xl font-bold text-gray-800 mb-2">Previously Called</h2>
                     
                     <!-- List of previously called children -->
-                    <div class="space-y-3 flex-1">
-                        <!-- Card -->
-                        <div class="bg-white rounded-lg py-3 px-4 shadow-[0_0_10px_rgba(0,0,0,0.25)]">
-                            <div class="text-gray-800 text-2xl mb-0">
-                                Olivia Johnson
-                            </div>
-                            <div class="flex justify-between items-center">
-                                <div class="font-bold text-black text-xl">
-                                    Y9R2
-                                </div>
-                                <div class="text-white bg-gray-400 px-1.5 py-0 rounded-md text-base">
-                                    5 min ago
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Card -->
-                        <div class="bg-white rounded-lg py-3 px-4 shadow-[0_0_10px_rgba(0,0,0,0.25)]">
-                            <div class="text-gray-800 text-2xl mb-0">
-                                Olivia Johnson
-                            </div>
-                            <div class="flex justify-between items-center">
-                                <div class="font-bold text-black text-xl">
-                                    Y9R2
-                                </div>
-                                <div class="text-white bg-gray-400 px-1.5 py-0 rounded-md text-base">
-                                    5 min ago
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Card -->
-                        <div class="bg-white rounded-lg py-3 px-4 shadow-[0_0_10px_rgba(0,0,0,0.25)]">
-                            <div class="text-gray-800 text-2xl mb-0">
-                                Olivia Johnson
-                            </div>
-                            <div class="flex justify-between items-center">
-                                <div class="font-bold text-black text-xl">
-                                    Y9R2
-                                </div>
-                                <div class="text-white bg-gray-400 px-1.5 py-0 rounded-md text-base">
-                                    5 min ago
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Card -->
-                        <div class="bg-white rounded-lg py-3 px-4 shadow-[0_0_10px_rgba(0,0,0,0.25)]">
-                            <div class="text-gray-800 text-2xl mb-0">
-                                Olivia Johnson
-                            </div>
-                            <div class="flex justify-between items-center">
-                                <div class="font-bold text-black text-xl">
-                                    Y9R2
-                                </div>
-                                <div class="text-white bg-gray-400 px-1.5 py-0 rounded-md text-base">
-                                    5 min ago
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Card -->
-                        <div class="bg-white rounded-lg py-3 px-4 shadow-[0_0_10px_rgba(0,0,0,0.25)]">
-                            <div class="text-gray-800 text-2xl mb-0">
-                                Olivia Johnson
-                            </div>
-                            <div class="flex justify-between items-center">
-                                <div class="font-bold text-black text-xl">
-                                    Y9R2
-                                </div>
-                                <div class="text-white bg-gray-400 px-1.5 py-0 rounded-md text-base">
-                                    5 min ago
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Card -->
-                        <div class="bg-white rounded-lg py-3 px-4 shadow-[0_0_10px_rgba(0,0,0,0.25)]">
-                            <div class="text-gray-800 text-2xl mb-0">
-                                Olivia Johnson
-                            </div>
-                            <div class="flex justify-between items-center">
-                                <div class="font-bold text-black text-xl">
-                                    Y9R2
-                                </div>
-                                <div class="text-white bg-gray-400 px-1.5 py-0 rounded-md text-base">
-                                    5 min ago
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Card -->
-                        <div class="bg-white rounded-lg py-3 px-4 shadow-[0_0_10px_rgba(0,0,0,0.25)]">
-                            <div class="text-gray-800 text-2xl mb-0">
-                                Olivia Johnson
-                            </div>
-                            <div class="flex justify-between items-center">
-                                <div class="font-bold text-black text-xl">
-                                    Y9R2
-                                </div>
-                                <div class="text-white bg-gray-400 px-1.5 py-0 rounded-md text-base">
-                                    5 min ago
-                                </div>
-                            </div>
+                    <div id="previously-called-list" class="space-y-3 flex-1">
+                        <!-- Cards will be dynamically inserted here -->
+                        <div class="text-center text-gray-500 py-8">
+                            Loading children data...
                         </div>
                     </div>
                 </div>
@@ -185,20 +85,7 @@
         </div>
     </div>
     
-    <!-- Script for current time -->
-    <script>
-        function updateTime() {
-            const now = new Date();
-            const timeString = now.toLocaleTimeString('en-US', { 
-                hour: '2-digit', 
-                minute: '2-digit',
-                hour12: false 
-            });
-            document.getElementById('current-time').textContent = timeString;
-        }
-        
-        setInterval(updateTime, 60000);
-        updateTime();
-    </script>
+    <!-- JavaScript for API integration -->
+    <script src="app.js"></script>
 </body>
 </html>
