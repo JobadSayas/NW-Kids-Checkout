@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <title>Checkouts - {{ .Location }}</title>
+</head>
+
+<style>
+    body {
+        font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    }
+
+    .checkout {
+        border: 1pt solid black;
+        padding-left: 1vw;
+        padding-right: 1vw;
+        padding-top: 0.5vh;
+        padding-bottom: 0.5vh;
+        margin: 3pt;
+        width: 17vw;
+        border-radius: 8pt;
+        transition: transform 0.3s ease;
+    }
+
+    .checkout.new {
+        animation: slideIn 0.5s ease-out;
+    }
+
+    @keyframes slideIn {
+        from {
+            opacity: 0;
+        }
+        to {
+            opacity: 1;
+        }
+    }
+
+    #disconnected_toast {
+        position: fixed;
+        bottom: 2vh;
+        right: 2vw;
+        z-index: 100;
+        color: white;
+        padding: 6pt;
+        background-color: red;
+        border-radius: 8pt;
+        transition: transform 1s ease-in-out;
+        transform: translateY(200%);
+    }
+
+    .show {
+        transform: translateY(0) !important;
+    }
+</style>
+
+<body>
+<template id="locationId" data-location="{{ .Location }}"></template>
+<div>
+    <div style="float: right;margin-top:1.5vh;">
+        <label for="location_selector">Choose Location:</label>
+        <select name="location" id="location_selector">
+            {{ range .Locations }}
+                <option value="{{ .Name }}">{{ .Name }}</option>
+            {{ end }}
+        </select>
+    </div>
+    <h1>Checkouts for {{.Location}}</h1>
+</div>
+
+<div id="checkouts" style="display: flex;flex-direction: row;flex-wrap: wrap;"></div>
+<div id="disconnected_toast" class="">
+    Disconnected from server
+</div>
+</body>
+</html>
+
+<script src="/static/js/morphdom-umd.min.js"></script>
+<script type="application/javascript">
+    (function () {
+        // websocket state
+        let ws;
+        const messageDelay = 1500;
+        const connectDelay = 5000;
+        let autoReconnect = true;
+        let messageTimer = null;
+        let connectTimer = null;
+
+        const locationName = document.getElementById("locationId").dataset.location;
+
+        function refreshTimes() {
+            const checkouts = document.querySelectorAll('[data-checkedout]');
+            checkouts.forEach(checkout => {
+                checkout.innerText = getElapsed(checkout.dataset.checkedout);
+            });
+        }
+
+        function getElapsed(timeString) {
+            if (timeString === "0001-01-01T00:00:00Z" || timeString === "") {
+                return "never";
+            }
+            const theTime = new Date(timeString);
+            const now = new Date();
+            const elapsed = (now - theTime) / 1000;
+            if (elapsed < 60) {
+                return "just now";
+            }
+            if (elapsed < 119) {
+                return "1 minute ago";
+            }
+            if (elapsed < 3600) {
+                return Math.floor(elapsed / 60) + " minutes ago";
+            }
+            return theTime.toLocaleString();
+        }
+
+        function send() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    location: locationName,
+                }));
+            }
+        }
+
+        function connect() {
+            console.info('Connecting to websocket server...');
+            autoReconnect = true;
+            ws = new WebSocket(
+                location.protocol === 'https:'
+                    ? 'wss://' + window.location.host + window.location.pathname
+                    : 'ws://' + window.location.host + window.location.pathname
+            );
+
+            ws.onopen = function () {
+                console.info('WebSocket connected.');
+                setConnectionStatus(true);
+                clearTimeout(messageTimer);
+                messageTimer = setInterval(send, messageDelay);
+            };
+
+            ws.onmessage = function (ev) {
+                if (ev.data) {
+                    renderCheckouts(JSON.parse(ev.data));
+                }
+            };
+
+            ws.onclose = function (ev) {
+                console.warn(`WebSocket closed (Code: ${ev.code}).`);
+                clearInterval(messageTimer);
+                setConnectionStatus(false);
+                if (autoReconnect) {
+                    console.info(`Reconnecting in ${connectDelay / 1000} seconds...`);
+                    clearTimeout(connectTimer);
+                    connectTimer = setTimeout(connect, connectDelay);
+                }
+            };
+
+            ws.onerror = function () {
+                console.error('WebSocket error occurred.');
+                ws.close(); // This will trigger the onclose handler, which will attempt to reconnect.
+            };
+        }
+
+        function renderCheckouts(checkouts) {
+            const checkoutsDiv = document.getElementById('checkouts');
+            const newCheckoutsDiv = checkoutsDiv.cloneNode(false);
+
+            checkouts.forEach(checkout => {
+                const co = document.createElement('div');
+                co.id = 'co_' + checkout.planning_center_id;
+                co.className = 'checkout';
+                if (!document.getElementById(co.id)) {
+                    co.classList.add('new');
+                }
+                co.dataset.planningcenterid = checkout.planning_center_id;
+
+                const name = document.createElement('strong');
+                name.textContent = `${checkout.first_name} ${checkout.last_name}`;
+
+                const securityCode = document.createTextNode(`Security Code: ${checkout.security_code}`);
+
+                const checkedOut = document.createElement('span');
+                checkedOut.dataset.checkedout = checkout.checked_out_at;
+                checkedOut.dataset.planningcenterid = checkout.planning_center_id;
+                checkedOut.textContent = getElapsed(checkout.checked_out_at);
+
+                co.appendChild(name);
+                co.appendChild(document.createElement('br'));
+                co.appendChild(securityCode);
+                co.appendChild(document.createElement('br'));
+                co.appendChild(document.createTextNode('Checked out '));
+                co.appendChild(checkedOut);
+
+                newCheckoutsDiv.appendChild(co);
+            });
+            morphdom(checkoutsDiv, newCheckoutsDiv);
+        }
+
+        function setConnectionStatus(status) {
+            document.getElementById('disconnected_toast').classList.toggle('show', !status);
+        }
+
+        // Initial load
+        renderCheckouts(JSON.parse({{.Checkouts}}));
+        setInterval(refreshTimes, 3000);
+        connect();
+
+        // Browser state listeners
+        window.addEventListener('online', () => setConnectionStatus(true));
+        window.addEventListener('offline', () => setConnectionStatus(false));
+        setConnectionStatus(navigator.onLine);
+
+        // Location selector
+        const locationSelector = document.getElementById('location_selector');
+        locationSelector.value = locationName;
+        locationSelector.addEventListener('change', (e) => {
+            if (locationName !== e.target.value) {
+                window.location.href = `/v1/checkouts/${e.target.value}`;
+            }
+        });
+    })();
+</script>

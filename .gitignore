@@ -1,0 +1,5 @@
+kids-checkin.db
+bin/kids-checkin
+.env
+
+.DS_STORE

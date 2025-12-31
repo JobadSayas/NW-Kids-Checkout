@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NW Kids Checkout</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+        }
+
+        @media (min-width: 1024px) {
+            .current-checkout {
+                height: calc(100vh - 80px);
+            }
+
+            .previously-called-container {
+                height: calc(100vh - 80px);
+            }
+        }
+
+        #disconnected_toast {
+            position: fixed;
+            bottom: 2vh;
+            right: 2vw;
+            z-index: 100;
+            color: white;
+            padding: 6pt;
+            background-color: red;
+            border-radius: 8pt;
+            transition: transform 1s ease-in-out;
+            transform: translateY(200%);
+        }
+
+        #disconnected_toast.show {
+            transform: translateY(0) !important;
+        }
+    </style>
+</head>
+
+<body class="min-h-screen px-6 py-4 md:pr-2 relative bg-white overflow-hidden h-[100vh]">
+
+<!-- Location ID -->
+<template id="locationId" data-location="{{ .Location }}"></template>
+
+<!-- Background images -->
+<div class="absolute inset-0 z-0 overflow-hidden">
+    <img src="/static/img/bg-left.svg" alt=""
+         class="absolute left-0 bottom-0 h-[300px] w-auto m:h-auto object-cover object-bottom lg:h-auto lg:w-[100%] z-10">
+    <img src="/static/img/bg-right.svg" alt=""
+         class="absolute right-0 bottom-0 h-[200px] w-auto m:h-auto object-cover object-bottom lg:h-auto lg:w-[40%] z-0">
+</div>
+
+<!-- Header -->
+<header class="flex justify-between items-center mb-8 lg:mb-0 md:absolute w-full relative z-10">
+    <!-- Logo -->
+    <div>
+        <img src="/static/img/NWKids-logo.svg" alt="NWKids Logo" class="h-16 md:h-24 w-auto">
+    </div>
+
+    <!-- Checkout location -->
+    <div class="text-2xl md:text-4xl font-bold text-gray-800 lg:absolute lg:left-[15%] lg:top-5 lg:transform lg:-translate-x-1/2 relative z-10">
+        {{ .Location }}
+    </div>
+
+    <!-- Current time -->
+    <div class="text-4xl md:text-6xl font-bold text-gray-800 lg:absolute lg:left-[50%] lg:top-0 lg:transform lg:-translate-x-1/2 relative z-10">
+        <span id="current-time">14:30</span>
+    </div>
+</header>
+
+<div class="relative z-10">
+    <div class="flex flex-col lg:flex-row gap-8">
+        <!-- Left Panel - Currently Called -->
+        <div class="lg:w-8/12 flex items-center current-checkout">
+            <!-- Current child information -->
+            <div class="w-full">
+                <div class="text-left">
+                    <!-- Name -->
+                    <div id="current-checkout-name"
+                         class="font-bold text-4xl md:text-6xl lg:text-7xl text-gray-800 mb-1 md:mb-3">
+                        Loading...
+                    </div>
+
+                    <!-- Code and time - Same line in mobile -->
+                    <div class="flex items-center">
+                        <div id="current-checkout-code" class="text-4xl md:text-6xl text-black mr-4">
+                            ...
+                        </div>
+                        <div id="current-checkout-time"
+                             class="text-xl md:text-2xl text-white bg-gray-400 px-3 py-1 md:px-2 md:py-1 rounded-md">
+                            0 min ago
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Panel - Previously Called -->
+        <div class="lg:w-4/12">
+            <div class="previously-called-container flex flex-col md:px-4 md:overflow-hidden">
+                <h2 class="text-xl font-bold text-gray-800 mb-2">Previously Called</h2>
+
+                <!-- List of previous checkouts -->
+                <div id="previously-called-list" class="space-y-3 flex-1">
+                    <!-- Cards will be dynamically inserted here -->
+                    <div class="text-center text-gray-500 py-8">
+                        Loading checkout data...
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Toast for disconnected from server -->
+<div id="disconnected_toast" class="">
+    Disconnected from server
+</div>
+
+<!-- JavaScript for API integration -->
+<script src="/static/js/checkoutsv1/checkouts.js"></script>
+</body>
+</html>
