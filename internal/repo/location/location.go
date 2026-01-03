@@ -153,6 +153,7 @@ func (repo *sqliteRepo) ListLocations(ctx context.Context, filter LocationFilter
 		if err != nil {
 			return nil, err
 		}
+
 		if lgIDSQL.Valid {
 			location.LocationGroupID = &lgIDSQL.Int64
 		}
@@ -186,7 +187,7 @@ func (repo *sqliteRepo) CreateLocation(ctx context.Context, location Location) (
 
 	if !location.LastCheckedOutTime.IsZero() {
 		columns = append(columns, "last_checked_out_time")
-		values = append(values, location.LastCheckedOutTime)
+		values = append(values, location.LastCheckedOutTime.Format(time.RFC3339))
 	}
 
 	builder := squirrel.

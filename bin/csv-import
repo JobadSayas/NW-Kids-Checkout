@@ -2,12 +2,22 @@
 
 set -euo pipefail
 
-sqlite3 "$DB_FILE" <<'EOF'
-.mode csv
-.import seed/locations.csv locations
-EOF
+echo "$DB_FILE"
 
-sqlite3 "$DB_FILE" <<'EOF'
-.mode csv
-.import seed/location_groups.csv location_groups
-EOF
+sqlite3 "$DB_FILE" <<'SQL'
+ATTACH 'seed/seed.db' AS seed;
+
+BEGIN;
+
+INSERT INTO locations
+SELECT *
+FROM seed.locations;
+
+INSERT INTO location_groups
+SELECT *
+FROM seed.location_groups;
+
+COMMIT;
+DETACH seed;
+
+SQL

@@ -8,24 +8,28 @@ The project is structured as a command-line application with two main commands:
 
 ## Requirements
 - [Golang](https://go.dev/) 1.25+
-- [SQLite](https://www.sqlite.org/) (should be on macOS by default)
+- [SQLite](https://www.sqlite.org/) 3.37+ (should be on macOS by default)
 - [GNU make](https://www.gnu.org/software/make/) (should be on macOS by default)
 - [godotenv](https://github.com/joho/godotenv). Install via `go install github.com/joho/godotenv/cmd/godotenv@latest` once Golang is installed.
 
 ## Quick Start
-1. Initialize the database:
+1. Create a `.env` file if it does not exist:
 ```shell
-make db-reset
+touch .env
 ```
-2. In one terminal, start the checkout fetcher:
+2. Initialize and seed the database:
+```shell
+make db-reset db-seed
+```
+3. In one terminal, start the checkout fetcher:
 ```shell
 make checkout-fetcher
 ```
-3. In another terminal, start the server:
+4. In another terminal, start the server:
 ```shell
 make web
 ```
-4. Navigate to http://localhost:3000/v1/checkins/checkouts/Test%20Location?checked_out_after=-31m to see the checkouts for the 31 past minutes.
+5. Navigate to http://localhost:3000/v1/checkins/checkouts/Test%20Location?checked_out_after=-31m to see the checkouts for the 31 past minutes.
 
 ## Building and Running
 

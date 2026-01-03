@@ -90,15 +90,10 @@ func (controller *Controller) checkoutsWeb(c *fiber.Ctx) error {
 
 	checkins = sortCheckins(checkins)
 
-	locations, err := controller.locationRepo.ListLocations(c.Context(), location.LocationFilter{})
+	_, err = controller.locationRepo.ListLocations(c.Context(), location.LocationFilter{})
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
-	locations = append(locations, location.Location{
-		ID:               3333,
-		PlanningCenterID: "ffff",
-		Name:             "Another ONE",
-	})
 
 	return c.JSON(repoCheckinSliceToOutput(checkins))
 }

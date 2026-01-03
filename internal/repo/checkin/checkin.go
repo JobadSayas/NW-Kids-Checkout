@@ -72,7 +72,6 @@ func (s *sqliteRepo) ListCheckins(ctx context.Context, filter Filter) ([]Checkin
 	}
 
 	if filter.LocationGroupID > 0 {
-
 		if !joinedTables["locations"] {
 			builder = builder.Join("locations ON locations.id = checkins.location_id")
 			joinedTables["locations"] = true
@@ -126,7 +125,7 @@ func (s *sqliteRepo) ListCheckins(ctx context.Context, filter Filter) ([]Checkin
 
 	rows, err := builder.RunWith(s.db).QueryContext(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("querying checkins: %w", err)
 	}
 	defer rows.Close()
 	checkins := make([]Checkin, 0)
@@ -144,7 +143,7 @@ func (s *sqliteRepo) ListCheckins(ctx context.Context, filter Filter) ([]Checkin
 			&checkedOutAt,
 		)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("scanning checkin: %w", err)
 		}
 
 		if checkedOutAt.Valid {

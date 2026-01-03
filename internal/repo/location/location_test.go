@@ -1,32 +1,43 @@
 package location
 
 import (
-	"database/sql"
-	"log"
-	"os"
-	"testing"
-
 	"kids-checkin/internal/db"
+	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-var testDB *sql.DB
+func Test_sqliteRepo_ListLocations(t *testing.T) {
+	testDB, cleanup, err := db.PrepareTestDB()
+	require.NoError(t, err, "Failed to prepare test DB")
+	t.Cleanup(cleanup)
+	s := NewRepo(testDB)
 
-func TestMain(m *testing.M) {
-	tDB, cleanup, err := db.PrepareTestDB()
-	if err != nil {
-		log.Fatalf("Failed to prepare test DB: %v", err)
-	}
-	testDB = tDB
+	t.Run("empty table", func(t *testing.T) {
+		locations, err := s.ListLocations(t.Context(), LocationFilter{})
+		require.NoError(t, err)
+		assert.Empty(t, locations)
+	})
 
-	code := m.Run()
-	cleanup()
-	os.Exit(code)
+	t.Run("some filtered locations", func(t *testing.T) {
+		_, err = s.CreateLocation(t.Context(), Location{
+			PlanningCenterID: "pcloc_1234",
+			Name:             "Cool location",
+		})
+		require.NoError(t, err)
+		locations, err := s.ListLocations(t.Context(), LocationFilter{
+			PlanningCenterID: "pcloc_1234",
+		})
+		require.NoError(t, err)
+		assert.Len(t, locations, 1)
+	})
 }
 
 func Test_sqliteRepo_CreateLocation(t *testing.T) {
+	testDB, cleanup, err := db.PrepareTestDB()
+	require.NoError(t, err, "Failed to prepare test DB")
+	t.Cleanup(cleanup)
 	s := NewRepo(testDB)
 
 	t.Run("location created successfully", func(t *testing.T) {
