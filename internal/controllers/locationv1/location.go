@@ -28,7 +28,7 @@ func (controller *Controller) RegisterRoutes(app *fiber.App) {
 }
 
 func (controller *Controller) GetListLocations(c *fiber.Ctx) error {
-	locations, err := controller.repo.ListLocations(c.Context(), location.Filter{
+	locations, err := controller.repo.ListLocations(c.Context(), location.LocationFilter{
 		Name:             c.Query("name"),
 		PlanningCenterID: c.Query("planning_center_id"),
 	})

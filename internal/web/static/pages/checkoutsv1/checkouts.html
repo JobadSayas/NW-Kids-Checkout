@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NW Kids Checkout</title>
+    <!-- Tailwind CSS CDN -->
+    <!-- <script src="https://cdn.tailwindcss.com"></script> -->
+    <!-- Tailwind local -->
+    <link rel="stylesheet" href="/static/css/tailwind.css">
+
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+        }
+
+        /* Hide scrollbar for Chrome, Safari and Opera */
+        .hide-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+
+        /* Hide scrollbar for IE, Edge and Firefox */
+        .hide-scrollbar {
+            -ms-overflow-style: none; /* IE and Edge */
+            scrollbar-width: none; /* Firefox */
+        }
+    </style>
+
+</head>
+
+<body class="min-h-screen bg-white">
+<!-- Background images -->
+<div class="fixed inset-0 z-0 overflow-hidden">
+    <img src="/static/img/bg-left.svg" alt=""
+         class="absolute left-0 bottom-0 h-[300px] w-auto m:h-auto object-cover object-bottom lg:h-auto lg:w-[100%] z-10">
+    <img src="/static/img/bg-right.svg" alt=""
+         class="absolute right-0 bottom-0 h-[200px] w-auto m:h-auto object-cover object-bottom lg:h-auto lg:w-[40%] z-0">
+</div>
+
+<header class="flex justify-between items-center w-full z-20 px-6 py-4 lg:fixed">
+    <div class="flex justify-between items-center">
+        <img src="/static/img/NWKids-logo.svg" alt="NWKids Logo" class="h-16 md:h-24 w-auto">
+    </div>
+
+    <div class="text-4xl md:text-6xl font-bold text-gray-800 lg:absolute lg:left-1/2 lg:top-4 lg:transform lg:-translate-x-1/2">
+        <span id="current-time">14:30</span>
+    </div>
+
+    <div class="hidden lg:block w-16 md:w-24"></div>
+    </div>
+</header>
+
+<!-- Main Content -->
+<div class="relative z-10 lg:h-screen lg:flex">
+    <!-- Left Panel - Currently Called (Desktop: 8/12, Mobile: full width) -->
+    <div class="lg:w-8/12 lg:h-full lg:flex lg:items-center px-6 pt-1 pb-5 lg:py-0">
+        <div class="w-full">
+            <!-- Name -->
+            <div id="current-child-name" class="font-bold text-4xl lg:text-6xl lg:text-7xl text-gray-800 mb-1 lg:mb-3">
+                Loading...
+            </div>
+
+            <!-- Code and time -->
+            <div class="flex items-center">
+                <div id="current-child-code" class="text-3xl lg:text-6xl text-black mr-4">
+                    ...
+                </div>
+                <div id="current-child-time"
+                     class="text-xl lg:text-xl text-white bg-gray-400 px-2 py-0 lg:px-2 lg:py-1 rounded-md">
+                    0 min ago
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Right Panel - Previously Called (Desktop: 4/12 with internal scroll, Mobile: full width) -->
+    <div class="lg:w-4/12 lg:h-full border-t border-gray-300 lg:border-t-0">
+        <div class="h-full flex flex-col lg:px-0 lg:px-0 py-4 lg:pt-4 lg:pb-0">
+            <h2 class="text-xl font-bold text-gray-800 mb-4 px-4">Previously Called</h2>
+
+            <!-- Scrollable cards container -->
+            <div id="previously-called-list" class="flex-1 overflow-y-auto hide-scrollbar space-y-3 flex-1 px-4">
+                <!-- Cards will be dynamically inserted here -->
+                <div class="text-center text-gray-500 py-8">
+                    Loading children data...
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- JavaScript for API integration -->
+<script src="/static/pages/checkoutsv1/checkouts.js"></script>
+</body>
+</html>

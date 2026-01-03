@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"kids-checkin/internal/web/static"
 	"log/slog"
 	"net/url"
 	"sort"
@@ -19,7 +20,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-const defaultCheckedOutAfterDelta = -31 * time.Minute
+const defaultCheckedOutAfterDelta = -150 * time.Hour
 
 type Controller struct {
 	checkinRepo  checkin.Repo
@@ -43,7 +44,7 @@ func NewController(db *sql.DB) *Controller {
 func (controller *Controller) RegisterRoutes(app *fiber.App) {
 	checkinGroup := app.Group("/v1/checkins")
 
-	checkinGroup.Get("/checkouts/:location", controller.Checkouts)
+	checkinGroup.Get("/checkouts", controller.Checkouts)
 }
 
 func (controller *Controller) Checkouts(c *fiber.Ctx) error {
@@ -55,9 +56,20 @@ func (controller *Controller) Checkouts(c *fiber.Ctx) error {
 }
 
 func (controller *Controller) checkoutsWeb(c *fiber.Ctx) error {
-	accepts := c.Accepts("application/json", "text/html")
+	accepts := c.Accepts(fiber.MIMEApplicationJSON, fiber.MIMETextHTML)
 	if accepts == "" {
 		return fiber.NewError(fiber.StatusUnsupportedMediaType, "unsupported media type")
+	}
+
+	if accepts == fiber.MIMETextHTML {
+		f, err := static.EmbeddedFS.Open("pages/checkoutsv1/checkouts.html")
+		if err != nil {
+			return fiber.ErrInternalServerError
+		}
+		defer f.Close()
+
+		c.Type("html")
+		return c.SendStream(f)
 	}
 
 	filter, err := buildFilter(c)
@@ -69,18 +81,16 @@ func (controller *Controller) checkoutsWeb(c *fiber.Ctx) error {
 		filter.CheckedOutAtAfter = time.Now().Add(defaultCheckedOutAfterDelta)
 	}
 
+	fmt.Printf("%+v\n", filter)
+
 	checkins, err := controller.checkinRepo.ListCheckins(c.Context(), filter)
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 
 	checkins = sortCheckins(checkins)
-	msg, err := json.Marshal(repoCheckinSliceToOutput(checkins))
-	if err != nil {
-		slog.WarnContext(c.Context(), "cannot marshal checkins", slog.String("error", err.Error()))
-	}
 
-	locations, err := controller.locationRepo.ListLocations(c.Context(), location.Filter{})
+	locations, err := controller.locationRepo.ListLocations(c.Context(), location.LocationFilter{})
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
@@ -90,15 +100,7 @@ func (controller *Controller) checkoutsWeb(c *fiber.Ctx) error {
 		Name:             "Another ONE",
 	})
 
-	if accepts == "text/html" {
-		return c.Render("checkoutsv1/checkouts", fiber.Map{
-			"Location":  filter.LocationName,
-			"Locations": locations,
-			"Checkouts": string(msg),
-		})
-	} else {
-		return c.JSON(repoCheckinSliceToOutput(checkins))
-	}
+	return c.JSON(repoCheckinSliceToOutput(checkins))
 }
 
 func (controller *Controller) checkoutsWebsocket(c *fiber.Ctx) error {
@@ -168,21 +170,21 @@ func (controller *Controller) checkoutsWebsocket(c *fiber.Ctx) error {
 }
 
 func buildFilter(c *fiber.Ctx) (checkin.Filter, error) {
-	locationName := c.Params("location", "")
-	if locationName == "" {
-		return checkin.Filter{}, errors.New("location is required")
-	}
+	locationGroupName := c.Query("location_group_name", "")
+	var err error
 
-	locationName, err := url.QueryUnescape(locationName)
-	if err != nil {
-		return checkin.Filter{}, errors.New("cannot parse location name")
+	if locationGroupName != "" {
+		locationGroupName, err = url.QueryUnescape(locationGroupName)
+		if err != nil {
+			return checkin.Filter{}, errors.New("cannot parse location_group_id")
+		}
 	}
 
 	filter := checkin.Filter{
-		LocationName:     locationName,
-		PlanningCenterID: c.Query("planning_center_id"),
-		FirstName:        c.Query("first_name"),
-		LastName:         c.Query("last_name"),
+		LocationGroupName: locationGroupName,
+		PlanningCenterID:  c.Query("planning_center_id"),
+		FirstName:         c.Query("first_name"),
+		LastName:          c.Query("last_name"),
 	}
 
 	if idStr := c.Query("id"); idStr != "" {
@@ -190,6 +192,32 @@ func buildFilter(c *fiber.Ctx) (checkin.Filter, error) {
 		if err != nil {
 			return checkin.Filter{}, errors.New("cannot parse id")
 		}
+	}
+
+	if limitStr := c.Query("limit"); limitStr != "" {
+		limitInt, err := strconv.Atoi(limitStr)
+		if err != nil {
+			return checkin.Filter{}, errors.New("cannot parse limit")
+		}
+		if limitInt < 0 {
+			return checkin.Filter{}, errors.New("limit must be positive")
+		}
+		filter.Limit = limitInt
+	}
+
+	if lgIDStr := c.Query("location_group_id"); lgIDStr != "" {
+		lgID, err := strconv.ParseInt(lgIDStr, 10, 64)
+		if err != nil {
+			return checkin.Filter{}, errors.New("cannot parse location_group_id")
+		}
+		if lgID < 0 {
+			return checkin.Filter{}, errors.New("location_group_id must be positive")
+		}
+		filter.LocationGroupID = lgID
+	}
+
+	if lgName := c.Query("location_group_name"); lgName != "" {
+		filter.LocationGroupName = lgName
 	}
 
 	if cobStr := c.Query("checked_out_before"); cobStr != "" {

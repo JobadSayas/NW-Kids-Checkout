@@ -39,7 +39,7 @@ func Test_sqliteRepo_CreateLocation(t *testing.T) {
 		assert.Equal(t, "pcloc_1234", actual.PlanningCenterID)
 		assert.Equal(t, "Cool location", actual.Name)
 
-		locations, err := s.ListLocations(t.Context(), Filter{
+		locations, err := s.ListLocations(t.Context(), LocationFilter{
 			PlanningCenterID: "pcloc_1234",
 		})
 		require.NoError(t, err)
@@ -65,7 +65,7 @@ func Test_sqliteRepo_CreateLocation(t *testing.T) {
 		assert.Equal(t, first.ID, second.ID, "duplicate location should not be created")
 		assert.NotEqual(t, first.Name, second.Name, "duplicate location should have updated name")
 
-		locations, err := s.ListLocations(t.Context(), Filter{
+		locations, err := s.ListLocations(t.Context(), LocationFilter{
 			PlanningCenterID: "pcloc_1235",
 		})
 		require.NoError(t, err)

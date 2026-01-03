@@ -45,3 +45,7 @@ checkout-fetcher: build
 .PHONY: test
 test:
 	godotenv go test ./...
+
+.PHONY: db-seed
+db-seed:
+	godotenv ./bin/csv-import

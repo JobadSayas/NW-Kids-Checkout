@@ -4,12 +4,16 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"kids-checkin/internal/web/static"
+	"net/http"
 	"strconv"
 
 	"kids-checkin/internal/controllers/checkinv1"
 	"kids-checkin/internal/controllers/locationv1"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/filesystem"
+	_ "github.com/gofiber/fiber/v2/middleware/filesystem"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/gofiber/template/html/v2"
@@ -54,6 +58,14 @@ func StartServer(port int, db *sql.DB) error {
 	}))
 
 	registerRoutes(app, db)
+
+	// Serve static pages. Should be the last of all registered routes.
+	app.Use("/static", filesystem.New(filesystem.Config{
+		Root:       http.FS(static.NewFilteredFS()),
+		PathPrefix: "",
+		Browse:     true,
+	}))
+
 	err := app.Listen(":" + strconv.Itoa(port))
 	if err != nil {
 		return err
@@ -63,8 +75,6 @@ func StartServer(port int, db *sql.DB) error {
 }
 
 func registerRoutes(app *fiber.App, db *sql.DB) {
-	app.Static("/static", "./internal/web/static")
-
 	checkinController := checkinv1.NewController(db)
 	checkinController.RegisterRoutes(app)
 

@@ -1,0 +1,13 @@
+#!/bin/bash
+
+set -euo pipefail
+
+sqlite3 "$DB_FILE" <<'EOF'
+.mode csv
+.import seed/locations.csv locations
+EOF
+
+sqlite3 "$DB_FILE" <<'EOF'
+.mode csv
+.import seed/location_groups.csv location_groups
+EOF

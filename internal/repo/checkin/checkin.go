@@ -3,6 +3,7 @@ package checkin
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"time"
 
 	"github.com/Masterminds/squirrel"
@@ -13,16 +14,19 @@ type Filter struct {
 	PlanningCenterID   string
 	LocationID         int64
 	LocationName       string
+	LocationGroupID    int64
+	LocationGroupName  string
 	FirstName          string
 	LastName           string
 	CheckedOutAtBefore time.Time
 	CheckedOutAtAfter  time.Time
+	Limit              int
 }
 
 type Checkin struct {
-	ID               int64  `json:"-"`
-	PlanningCenterID string `json:"planning_center_id"`
-	LocationID       int64  `json:"location_id"`
+	ID               int64
+	PlanningCenterID string
+	LocationID       int64
 	FirstName        string
 	LastName         string
 	SecurityCode     string
@@ -45,6 +49,8 @@ func NewRepo(db *sql.DB) Repo {
 }
 
 func (s *sqliteRepo) ListCheckins(ctx context.Context, filter Filter) ([]Checkin, error) {
+	joinedTables := map[string]bool{}
+
 	builder := squirrel.Select(
 		"checkins.id",
 		"checkins.planning_center_id",
@@ -56,15 +62,34 @@ func (s *sqliteRepo) ListCheckins(ctx context.Context, filter Filter) ([]Checkin
 	).From("checkins")
 
 	if filter.LocationName != "" {
+		joinedTables["locations"] = true
 		builder = builder.Join("locations ON locations.id = checkins.location_id")
-	}
-
-	if filter.LocationName != "" {
 		builder = builder.Where(squirrel.Eq{"locations.name": filter.LocationName})
 	}
 
 	if filter.ID > 0 {
 		builder = builder.Where(squirrel.Eq{"checkins.id": filter.ID})
+	}
+
+	if filter.LocationGroupID > 0 {
+
+		if !joinedTables["locations"] {
+			builder = builder.Join("locations ON locations.id = checkins.location_id")
+			joinedTables["locations"] = true
+		}
+		builder = builder.Where(squirrel.Eq{"locations.location_group_id": filter.LocationGroupID})
+	}
+
+	if filter.LocationGroupName != "" {
+		if !joinedTables["locations"] {
+			builder = builder.Join("locations ON locations.id = checkins.location_id")
+			joinedTables["locations"] = true
+		}
+		if !joinedTables["location_groups"] {
+			builder = builder.Join("location_groups ON location_groups.id = locations.location_group_id")
+			joinedTables["location_groups"] = true
+		}
+		builder = builder.Where(squirrel.Eq{"location_groups.name": filter.LocationGroupName})
 	}
 
 	if filter.PlanningCenterID != "" {
@@ -90,6 +115,14 @@ func (s *sqliteRepo) ListCheckins(ctx context.Context, filter Filter) ([]Checkin
 	if filter.LocationID > 0 {
 		builder = builder.Where(squirrel.Eq{"checkins.location_id": filter.LocationID})
 	}
+
+	if filter.Limit > 0 {
+		builder = builder.Limit(uint64(filter.Limit))
+	}
+
+	q, args := builder.MustSql()
+	fmt.Println(q)
+	fmt.Println(args)
 
 	rows, err := builder.RunWith(s.db).QueryContext(ctx)
 	if err != nil {

@@ -10,6 +10,7 @@ The project is structured as a command-line application with two main commands:
 - [Golang](https://go.dev/) 1.25+
 - [SQLite](https://www.sqlite.org/) (should be on macOS by default)
 - [GNU make](https://www.gnu.org/software/make/) (should be on macOS by default)
+- [godotenv](https://github.com/joho/godotenv). Install via `go install github.com/joho/godotenv/cmd/godotenv@latest` once Golang is installed.
 
 ## Quick Start
 1. Initialize the database:

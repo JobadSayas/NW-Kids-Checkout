@@ -15,21 +15,37 @@ type Checkout struct {
 	SecurityCode string
 }
 
+type Location struct {
+	ID       string
+	ParentID *string
+	Name     string
+}
+
 type Client interface {
-	GetCheckoutsForLocation(ctx context.Context, locationID string, olderThan time.Time) ([]Checkout, error)
+	GetCheckoutsForLocation(ctx context.Context, locationID string, checkedOutOnOrAfter time.Time, limit int) ([]Checkout, error)
+	GetLocation(ctx context.Context, locationID string, includeAssociatedLocations bool) ([]Location, error)
 }
 
 func NewClient() Client {
 	return &defaultClient{
 		httpClient: &http.Client{
-			Timeout: 5 * time.Second,
+			Timeout: 10 * time.Second,
 		},
-		baseURL: os.Getenv("PLANNING_CENTER_BASE_URL"),
-		apiKey:  os.Getenv("PLANNING_CENTER_API_KEY"),
+		baseURL:  os.Getenv("PLANNING_CENTER_API_BASE_URL"),
+		clientID: os.Getenv("PLANNING_CENTER_API_CLIENT_ID"),
+		secret:   os.Getenv("PLANNING_CENTER_API_SECRET"),
 	}
 }
 
 type checkinResponse struct {
+	Links struct {
+		Self string `json:"self"`
+		Next string `json:"next"`
+	} `json:"links"`
+	Data []checkinResponseData `json:"data"`
+}
+
+type checkinResponseData struct {
 	Type          string               `json:"type"`
 	ID            string               `json:"id"`
 	Attributes    checkinAttributes    `json:"attributes"`
