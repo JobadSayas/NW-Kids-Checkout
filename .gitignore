@@ -1,6 +1,6 @@
 node_modules/
 package-lock.json
 .DS_Store
-kids-checkin.db
+kids-checkin.db*
 bin/kids-checkin
 .env

@@ -12,6 +12,7 @@ help:
 db-reset:
 	rm -f $(KIDS_CHECKIN_DB_FILE) && \
     touch $(KIDS_CHECKIN_DB_FILE) && \
+    set -e; sqlite3 $(KIDS_CHECKIN_DB_FILE) < db/pragmas.sqlite && \
     migrate -source file://db/migrations -database "sqlite3://$(KIDS_CHECKIN_DB_FILE)" up
 
 .PHONY: db-migrate

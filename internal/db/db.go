@@ -16,5 +16,13 @@ func InitDB(dataSourceName string) (*sql.DB, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	_, err = DB.Exec(`
+  		PRAGMA synchronous = NORMAL;
+  		PRAGMA temp_store = MEMORY;
+  		PRAGMA busy_timeout = 5000;`)
+	if err != nil {
+		return nil, err
+	}
 	return DB, DB.Ping()
 }
