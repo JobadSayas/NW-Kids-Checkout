@@ -25,11 +25,15 @@ make db-reset db-seed
 ```shell
 make checkout-fetcher
 ```
+If you want mock data instead of real data, add the following to your `.env` file then run the `checkout-fetcher` target:
+```shell
+CHECKOUT_FETCHER_USE_MOCK=true
+```
 4. In another terminal, start the server:
 ```shell
 make web
 ```
-5. Navigate to http://localhost:3000/v1/checkins/checkouts/Test%20Location?checked_out_after=-31m to see the checkouts for the 31 past minutes.
+5. Navigate to http://localhost:3000/v1/checkins/checkouts/Test%20Location?checked_out_after=-31m to see the checkouts for the past 31 minutes.
 
 ## Building and Running
 
