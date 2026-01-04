@@ -20,7 +20,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-const defaultCheckedOutAfterDelta = -150 * time.Hour
+const defaultCheckedOutAfterDelta = -12 * time.Hour
 
 type Controller struct {
 	checkinRepo  checkin.Repo
@@ -81,7 +81,7 @@ func (controller *Controller) checkoutsWeb(c *fiber.Ctx) error {
 		filter.CheckedOutAtAfter = time.Now().Add(defaultCheckedOutAfterDelta)
 	}
 
-	fmt.Printf("%+v\n", filter)
+	filter.Recent = true
 
 	checkins, err := controller.checkinRepo.ListCheckins(c.Context(), filter)
 	if err != nil {

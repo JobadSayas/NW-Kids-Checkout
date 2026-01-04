@@ -47,4 +47,5 @@ var allowedExt = map[string]struct{}{
 	".jpg":  {},
 	".png":  {},
 	".webp": {},
+	".ico":  {},
 }

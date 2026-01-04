@@ -91,6 +91,12 @@ func checkoutLoop(ctx context.Context, locationRepo location.Repo, checkinRepo c
 		checkouts, err := pcClient.GetCheckoutsForLocation(ctx, loc.PlanningCenterID, timeToUse, 0)
 
 		if err != nil {
+			var timeoutErr *planningcenter.TimeoutError
+			if errors.As(err, &timeoutErr) {
+				slog.Warn("timeout fetching checkouts for location", slog.String("location_id", loc.PlanningCenterID), slog.String("error", err.Error()))
+				err = nil
+				continue
+			}
 			return fmt.Errorf("failed to fetch checkouts for location %s: %w", loc.PlanningCenterID, err)
 		}
 		slog.Info("fetched checkouts for location", slog.String("location_id", loc.PlanningCenterID), slog.Int("checkouts_count", len(checkouts)))

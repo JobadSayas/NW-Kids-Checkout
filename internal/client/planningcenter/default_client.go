@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"sort"
@@ -60,6 +61,14 @@ func (client *defaultClient) GetCheckoutsForLocation(ctx context.Context, locati
 
 			resp, err := client.httpClient.Do(req)
 			if err != nil {
+				if errors.Is(err, context.DeadlineExceeded) {
+					// This is a timeout from the context passed to the method
+					return &TimeoutError{err}
+				}
+				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					// This covers the http.Client.Timeout and other network timeouts
+					return &TimeoutError{err}
+				}
 				return err
 			}
 

@@ -19,3 +19,11 @@ type ClientError struct {
 func (e *ClientError) Error() string {
 	return fmt.Sprintf("client error (%d): %s", e.statusCode, e.errMsg)
 }
+
+type TimeoutError struct {
+	err error
+}
+
+func (e *TimeoutError) Error() string {
+	return "timeout: " + e.err.Error()
+}

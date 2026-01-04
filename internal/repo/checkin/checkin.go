@@ -21,6 +21,7 @@ type Filter struct {
 	CheckedOutAtBefore time.Time
 	CheckedOutAtAfter  time.Time
 	Limit              int
+	Recent             bool
 }
 
 type Checkin struct {
@@ -115,13 +116,13 @@ func (s *sqliteRepo) ListCheckins(ctx context.Context, filter Filter) ([]Checkin
 		builder = builder.Where(squirrel.Eq{"checkins.location_id": filter.LocationID})
 	}
 
+	if filter.Recent {
+		builder = builder.OrderBy("checkins.checked_out_at DESC")
+	}
+
 	if filter.Limit > 0 {
 		builder = builder.Limit(uint64(filter.Limit))
 	}
-
-	q, args := builder.MustSql()
-	fmt.Println(q)
-	fmt.Println(args)
 
 	rows, err := builder.RunWith(s.db).QueryContext(ctx)
 	if err != nil {
