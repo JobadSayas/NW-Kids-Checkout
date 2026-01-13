@@ -33,6 +33,8 @@ CHECKOUT_FETCHER_USE_MOCK=true
 ```shell
 make web
 ```
+Alternatively, you can use `make web-lr` to start the server with live reload.
+
 5. Navigate to http://localhost:3000/v1/checkins/checkouts?checked_out_after=-31m to see the checkouts for the past 31 minutes.
 
 ## Building and Running
