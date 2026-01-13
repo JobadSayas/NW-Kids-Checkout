@@ -1,5 +1,5 @@
 [phases.setup]
-nixPkgs = ["pkgs.go_1_25_5", "pkgs.sqlite"]
+nixPkgs = ["pkgs.go_1_25", "pkgs.sqlite"]
 
 [phases.build]
 cmds = [
