@@ -11,6 +11,18 @@ type MockClient struct {
 
 	GetLocationFunc          func(ctx context.Context, locationID string, includeAssociatedLocations bool) ([]Location, error)
 	GetLocationFuncCallCount uint
+
+	GetLocationsForEventFunc          func(ctx context.Context, eventID string) ([]Location, error)
+	GetLocationsForEventFuncCallCount uint
+}
+
+func (client *MockClient) GetLocationsForEvent(ctx context.Context, eventID string) ([]Location, error) {
+	client.GetLocationsForEventFuncCallCount++
+	if client.GetLocationsForEventFunc != nil {
+		return client.GetLocationsForEventFunc(ctx, eventID)
+	}
+
+	panic("MockClient.GetLocationsForEvent not implemented")
 }
 
 func (client *MockClient) GetCheckoutsForLocation(ctx context.Context, locationID string, checkedOutOnOrAfter time.Time, limit int) ([]Checkout, error) {

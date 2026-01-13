@@ -2,11 +2,16 @@ package planningcenter
 
 import "time"
 
-type locationResponse struct {
+type locationByIDResponse struct {
 	Data     LocationTopLevelData `json:"data"`
 	Included []LocationIncluded   `json:"included"`
 	Meta     LocationMeta         `json:"meta"`
 }
+
+type locationsForEventResponse struct {
+	Data []LocationTopLevelData `json:"data"`
+}
+
 type LocationIncludedAttributes struct {
 	AgeMaxInMonths        any       `json:"age_max_in_months"`
 	AgeMinInMonths        any       `json:"age_min_in_months"`
@@ -30,7 +35,7 @@ type LocationIncludedAttributes struct {
 	UpdatedAt             time.Time `json:"updated_at"`
 }
 type LocationParent struct {
-	Data struct {
+	Data *struct {
 		Type string `json:"type"`
 		ID   string `json:"id"`
 	} `json:"data"`

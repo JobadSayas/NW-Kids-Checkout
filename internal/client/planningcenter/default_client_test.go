@@ -107,3 +107,50 @@ func Test_defaultClient_GetLocation(t *testing.T) {
 		})
 	}
 }
+
+func Test_defaultClient_GetLocationsForEvent(t *testing.T) {
+	require.NotEmpty(t, os.Getenv("PLANNING_CENTER_API_BASE_URL"), "PLANNING_CENTER_API_BASE_URL must be set to run this test")
+	require.NotEmpty(t, os.Getenv("PLANNING_CENTER_API_CLIENT_ID"), "PLANNING_CENTER_API_CLIENT_ID must be set to run this test")
+	require.NotEmpty(t, os.Getenv("PLANNING_CENTER_API_SECRET"), "PLANNING_CENTER_API_SECRET must be set to run this test")
+
+	type fields struct {
+		baseURL  string
+		clientID string
+		secret   string
+	}
+	type args struct {
+		ctx                        context.Context
+		eventID                    string
+		includeAssociatedLocations bool
+	}
+	tests := []struct {
+		name    string
+		fields  fields
+		args    args
+		want    []Checkout
+		wantErr bool
+	}{
+		{
+			name: "get checkins",
+			args: args{
+				ctx:                        t.Context(),
+				eventID:                    "152112",
+				includeAssociatedLocations: true,
+			},
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &defaultClient{
+				httpClient: http.DefaultClient,
+				baseURL:    os.Getenv("PLANNING_CENTER_API_BASE_URL"),
+				clientID:   os.Getenv("PLANNING_CENTER_API_CLIENT_ID"),
+				secret:     os.Getenv("PLANNING_CENTER_API_SECRET"),
+			}
+			got, err := client.GetLocationsForEvent(tt.args.ctx, tt.args.eventID)
+			require.NoError(t, err)
+			fmt.Printf("%+v\n", got)
+		})
+	}
+}

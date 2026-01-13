@@ -20,6 +20,87 @@ type defaultClient struct {
 	secret     string
 }
 
+func (client *defaultClient) GetLocationsForEvent(ctx context.Context, eventID string) ([]Location, error) {
+	getURL, err := url.JoinPath(client.baseURL, "check-ins", "v2", "events", eventID, "locations")
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, getURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.SetBasicAuth(client.clientID, client.secret)
+	req.Header.Set("Accept", "application/vnd.api+json")
+
+	resp, err := client.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	defer resp.Body.Close()
+
+	by, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode >= http.StatusInternalServerError {
+		return nil, &ServerError{
+			statusCode: resp.StatusCode,
+			errMsg:     string(by),
+		}
+	}
+	if resp.StatusCode >= http.StatusBadRequest {
+		return nil, &ClientError{
+			statusCode: resp.StatusCode,
+			errMsg:     string(by),
+		}
+	}
+
+	decoded := locationsForEventResponse{}
+	err = json.Unmarshal(by, &decoded)
+	if err != nil {
+		return nil, err
+	}
+
+	uniqueLocations := map[string]Location{}
+
+	for _, location := range decoded.Data {
+		var parentID *string
+		if location.Relationships.Parent.Data != nil && location.Relationships.Parent.Data.ID != "" {
+			parentID = &location.Relationships.Parent.Data.ID
+		}
+		uniqueLocations[location.ID] = Location{
+			ID:       location.ID,
+			Name:     location.Attributes.Name,
+			ParentID: parentID,
+		}
+	}
+
+	locations := make([]Location, 0, len(uniqueLocations))
+	for _, loc := range uniqueLocations {
+		locations = append(locations, loc)
+	}
+
+	sort.Slice(locations, func(i, j int) bool {
+		if locations[i].ParentID == nil && locations[j].ParentID == nil {
+			return locations[i].Name < locations[j].Name
+		}
+
+		if locations[i].ParentID != nil && locations[j].ParentID != nil {
+			if *locations[i].ParentID != *locations[j].ParentID {
+				return *locations[i].ParentID < *locations[j].ParentID
+			}
+			return locations[i].Name < locations[j].Name
+		}
+		return locations[i].ParentID == nil
+	})
+
+	return locations, nil
+}
+
 func (client *defaultClient) GetCheckoutsForLocation(ctx context.Context, locationID string, checkedOutOnOrAfter time.Time, limit int) ([]Checkout, error) {
 	if checkedOutOnOrAfter.IsZero() && limit == 0 {
 		return nil, errors.New("checked_out_on_or_after and limit cannot both be empty")
@@ -167,7 +248,7 @@ func (client *defaultClient) GetLocation(ctx context.Context, locationID string,
 		}
 	}
 
-	decoded := locationResponse{}
+	decoded := locationByIDResponse{}
 	err = json.Unmarshal(by, &decoded)
 	if err != nil {
 		return nil, err

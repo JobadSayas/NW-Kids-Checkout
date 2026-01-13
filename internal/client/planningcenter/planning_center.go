@@ -24,6 +24,7 @@ type Location struct {
 type Client interface {
 	GetCheckoutsForLocation(ctx context.Context, locationID string, checkedOutOnOrAfter time.Time, limit int) ([]Checkout, error)
 	GetLocation(ctx context.Context, locationID string, includeAssociatedLocations bool) ([]Location, error)
+	GetLocationsForEvent(ctx context.Context, eventID string) ([]Location, error)
 }
 
 func NewClient() Client {

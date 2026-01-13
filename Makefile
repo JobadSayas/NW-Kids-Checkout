@@ -1,4 +1,4 @@
-KIDS_CHECKIN_DB_FILE := kids-checkin.db
+KIDS_CHECKIN_DB_FILE := database/kids-checkin.db
 
 BIN_NAME := kids-checkin
 BIN_PATH := ./bin/$(BIN_NAME)
@@ -38,6 +38,10 @@ build:
 .PHONY: web
 web: build
 	godotenv $(BIN_PATH) apiserver
+
+.PHONY: web-lr
+web-lr:
+	go tool air --build.cmd="make build" --build.full_bin="godotenv $(BIN_PATH) apiserver" --build.exclude_dir="bin,database"
 
 .PHONY: checkout-fetcher
 checkout-fetcher: build

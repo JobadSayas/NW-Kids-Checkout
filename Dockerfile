@@ -1,0 +1,56 @@
+# =====================================
+# Builder Stage
+# =====================================
+FROM golang:1.25-bookworm AS builder
+
+WORKDIR /app
+
+# Download dependencies first for caching
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build Go binary with CGO enabled (needed for SQLite)
+RUN CGO_ENABLED=1 GOOS=linux go build -o /app/nw-kids-checkout .
+
+# =====================================
+# Final Stage
+# =====================================
+FROM debian:bookworm-slim
+
+# Install runtime dependencies: CA certs for TLS, SQLite
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy the compiled Go binary
+COPY --from=builder /app/nw-kids-checkout .
+
+# Create a directory for SQLite database + WAL/SHM
+RUN mkdir /data
+
+# Mark /data as a volume (Dokploy or Podman can mount persistent storage here)
+VOLUME /data
+
+# Default environment variables
+ENV DB_FILE=/data/kids-checkin.db \
+    PORT=3000
+
+# Create a non-root user for prod (UID 1001)
+RUN groupadd -g 1001 app && useradd -m -u 1001 -g app app
+
+# Set default user to non-root (can be overridden in dev)
+USER app
+
+# Expose port
+EXPOSE $PORT
+
+# Entrypoint is the binary
+ENTRYPOINT ["./nw-kids-checkout"]
+
+# Default command (apiserver); can be overridden
+CMD ["apiserver"]
