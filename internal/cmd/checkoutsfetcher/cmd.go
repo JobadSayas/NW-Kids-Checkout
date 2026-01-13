@@ -39,6 +39,11 @@ func FetchCheckouts(ctx context.Context, cmd *cli.Command) error {
 		return errors.New("interval must be greater than 0")
 	}
 
+	locationUpdateInterval := cmd.Duration("location-update-interval")
+	if locationUpdateInterval <= 0 {
+		return errors.New("location-update-interval must be greater than 0")
+	}
+
 	runtime := cmd.Duration("runtime")
 	if runtime <= 0 {
 		return errors.New("runtime must be greater than 0")
@@ -61,19 +66,20 @@ func FetchCheckouts(ctx context.Context, cmd *cli.Command) error {
 			break
 		}
 
-		err = checkoutLoop(ctx, locationsRepo, checkinRepo, pcClient)
+		slog.Info("checking for locations that need updating")
+
+		err = checkoutLoop(ctx, locationsRepo, checkinRepo, pcClient, locationUpdateInterval)
 		if err != nil {
 			return fmt.Errorf("failed to checkoutLoop: %w", err)
 		}
 
-		slog.Info("done fetching. sleeping", slog.Duration("sleep_duration", interval))
 		time.Sleep(interval)
 	}
 
 	return nil
 }
 
-func checkoutLoop(ctx context.Context, locationRepo location.Repo, checkinRepo checkin.Repo, pcClient planningcenter.Client) error {
+func checkoutLoop(ctx context.Context, locationRepo location.Repo, checkinRepo checkin.Repo, pcClient planningcenter.Client, locationUpdateInterval time.Duration) error {
 	autoFetch := true
 	locations, err := locationRepo.ListLocations(ctx, location.LocationFilter{
 		AutoFetch: &autoFetch,
@@ -82,52 +88,111 @@ func checkoutLoop(ctx context.Context, locationRepo location.Repo, checkinRepo c
 		return fmt.Errorf("failed to list locations: %w", err)
 	}
 
+	// Filter locations that need updating (haven't been updated in locationUpdateInterval)
+	var locationsToUpdate []location.Location
+	now := time.Now()
 	for _, loc := range locations {
-		timeToUse := loc.LastCheckedOutTime
-		if timeToUse.Before(time.Now().Add(getLookBackTime())) {
-			timeToUse = time.Now().Add(getLookBackTime())
-		}
-
-		checkouts, err := pcClient.GetCheckoutsForLocation(ctx, loc.PlanningCenterID, timeToUse, 0)
-
-		if err != nil {
-			var timeoutErr *planningcenter.TimeoutError
-			if errors.As(err, &timeoutErr) {
-				slog.Warn("timeout fetching checkouts for location", slog.String("location_id", loc.PlanningCenterID), slog.String("error", err.Error()))
-				err = nil
-				continue
-			}
-			return fmt.Errorf("failed to fetch checkouts for location %s: %w", loc.PlanningCenterID, err)
-		}
-		slog.Info("fetched checkouts for location", slog.String("location_id", loc.PlanningCenterID), slog.Int("checkouts_count", len(checkouts)))
-
-		lastCheckedOutTimeUnix := time.Time{}.Unix()
-
-		for _, checkout := range checkouts {
-			co := checkin.Checkin{
-				PlanningCenterID: checkout.ID,
-				LocationID:       loc.ID,
-				FirstName:        checkout.FirstName,
-				LastName:         checkout.LastName,
-				SecurityCode:     checkout.SecurityCode,
-				CheckedOutAt:     checkout.CheckedOutAt,
-			}
-
-			co, err := checkinRepo.CreateCheckin(ctx, co)
-			if err != nil {
-				return fmt.Errorf("failed to create checkin: %w", err)
-			}
-
-			lastCheckedOutTimeUnix = max(lastCheckedOutTimeUnix, co.CheckedOutAt.Unix())
-		}
-
-		loc.LastCheckedOutTime = time.Unix(lastCheckedOutTimeUnix, 0).UTC()
-		err = locationRepo.UpdateLocation(ctx, loc)
-		if err != nil {
-			return fmt.Errorf("failed to update location: %w", err)
+		// If location has never been updated, or was updated more than locationUpdateInterval ago, include it
+		if loc.LastCheckedOutTime.IsZero() || now.Sub(loc.LastCheckedOutTime) >= locationUpdateInterval {
+			locationsToUpdate = append(locationsToUpdate, loc)
 		}
 	}
+
+	if len(locationsToUpdate) == 0 {
+		slog.Info("no locations need updating")
+		return nil
+	}
+
+	slog.Info("processing locations that need updating", slog.Int("total_locations", len(locations)), slog.Int("locations_to_update", len(locationsToUpdate)))
+
+	var (
+		wg    sync.WaitGroup
+		errs  []error
+		errMu sync.Mutex                                 // Mutex to protect errs
+		sem   = make(chan struct{}, 5)                   // Semaphore to limit concurrency to 5
+		errCh = make(chan error, len(locationsToUpdate)) // Buffered channel for errors
+	)
+
+	for _, loc := range locationsToUpdate {
+		select {
+		case <-ctx.Done():
+			// Context cancelled, stop launching new goroutines
+			errs = append(errs, ctx.Err())
+			break // Exit the loop when context is cancelled
+		case sem <- struct{}{}: // Acquire a slot in the semaphore
+			wg.Add(1)
+			go func(loc location.Location) {
+				defer wg.Done()
+				defer func() { <-sem }() // Release the slot
+				processLocationCheckouts(ctx, loc, checkinRepo, locationRepo, pcClient, errCh)
+			}(loc)
+		}
+	}
+
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		errMu.Lock()
+		errs = append(errs, err)
+		errMu.Unlock()
+	}
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+
 	return nil
+}
+
+// processLocationCheckouts fetches checkouts for a given location and updates the database.
+func processLocationCheckouts(ctx context.Context, loc location.Location, checkinRepo checkin.Repo, locationRepo location.Repo, pcClient planningcenter.Client, errCh chan<- error) {
+	timeToUse := loc.LastCheckedOutTime
+	if timeToUse.Before(time.Now().Add(getLookBackTime())) {
+		timeToUse = time.Now().Add(getLookBackTime())
+	}
+
+	checkouts, err := pcClient.GetCheckoutsForLocation(ctx, loc.PlanningCenterID, timeToUse, 0)
+
+	if err != nil {
+		var timeoutErr *planningcenter.TimeoutError
+		if errors.As(err, &timeoutErr) {
+			slog.Warn("timeout fetching checkouts for location", slog.String("location_id", loc.PlanningCenterID), slog.String("error", err.Error()))
+			return
+		}
+		errCh <- fmt.Errorf("failed to fetch checkouts for location %s: %w", loc.PlanningCenterID, err)
+		return
+	}
+	slog.Info("fetched checkouts for location", slog.String("location_id", loc.PlanningCenterID), slog.Int("checkouts_count", len(checkouts)))
+
+	lastCheckedOutTimeUnix := time.Time{}.Unix()
+
+	for _, checkout := range checkouts {
+		co := checkin.Checkin{
+			PlanningCenterID: checkout.ID,
+			LocationID:       loc.ID,
+			FirstName:        checkout.FirstName,
+			LastName:         checkout.LastName,
+			SecurityCode:     checkout.SecurityCode,
+			CheckedOutAt:     checkout.CheckedOutAt,
+		}
+
+		co, err := checkinRepo.CreateCheckin(ctx, co)
+		if err != nil {
+			errCh <- fmt.Errorf("failed to create checkin: %w", err)
+			return
+		}
+
+		lastCheckedOutTimeUnix = max(lastCheckedOutTimeUnix, co.CheckedOutAt.Unix())
+	}
+
+	// Set the last_checked_out_time to current time to track when this location was last processed
+	loc.LastCheckedOutTime = time.Now().UTC()
+	err = locationRepo.UpdateLocation(ctx, loc)
+	if err != nil {
+		errCh <- fmt.Errorf("failed to update location: %w", err)
+		return
+	}
 }
 
 // getLookBackTime returns the time to look back for checkouts based on the CHECKOUT_FETCHER_LOOKBACK_TIME env var

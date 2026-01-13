@@ -45,6 +45,11 @@ func NewCommand() *cli.Command {
 						Sources: cli.NewValueSourceChain(cli.EnvVar("FETCH_CHECKOUTS_INTERVAL")),
 					},
 					&cli.DurationFlag{
+						Name:    "location-update-interval",
+						Value:   3 * time.Second,
+						Sources: cli.NewValueSourceChain(cli.EnvVar("LOCATION_UPDATE_INTERVAL")),
+					},
+					&cli.DurationFlag{
 						Name:  "runtime",
 						Usage: "How long to run the fetcher for",
 						Value: 5000 * time.Second,
