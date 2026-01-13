@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NW Kids Checkout</title>
+
+    <link rel="icon" type="image/x-icon" href="/favicon.ico"/>
+
+    <!-- Tailwind CSS CDN -->
+    <!-- <script src="https://cdn.tailwindcss.com"></script> -->
+    <!-- Tailwind local -->
+    <link rel="stylesheet" href="/static/css/tailwind.css">
+
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+        }
+
+        /* Hide scrollbar for Chrome, Safari and Opera */
+        .hide-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+
+        /* Hide scrollbar for IE, Edge and Firefox */
+        .hide-scrollbar {
+            -ms-overflow-style: none; /* IE and Edge */
+            scrollbar-width: none; /* Firefox */
+        }
+    </style>
+
+</head>
+
+<body class="min-h-screen bg-white">
+<!-- Background images -->
+<div class="fixed inset-0 z-0 overflow-hidden">
+    <img src="/static/img/bg-left.svg" alt=""
+         class="absolute left-0 bottom-0 h-[300px] w-auto m:h-auto object-cover object-bottom lg:h-auto lg:w-[100%] z-10">
+    <img src="/static/img/bg-right.svg" alt=""
+         class="absolute right-0 bottom-0 h-[200px] w-auto m:h-auto object-cover object-bottom lg:h-auto lg:w-[40%] z-0">
+</div>
+
+<header class="flex justify-between items-center w-full z-20 px-6 py-4 lg:fixed">
+    <div class="flex justify-between items-center">
+        <img src="/static/img/NWKids-logo.svg" alt="NWKids Logo" class="h-16 md:h-24 w-auto">
+    </div>
+
+    <h1>Home Page!</h1>
+</header>
+
+<!-- Main Content -->
+<div class="relative z-10 lg:h-screen">
+    <a href="/v1/checkins/checkouts?location_group_id=1&checked_out_after=-31m">NW Kids</a>
+    <br />
+    <a href="/v1/checkins/checkouts?location_group_id=2&checked_out_after=-31m">Kids Jr</a>
+</div>
+
+</body>
+</html>

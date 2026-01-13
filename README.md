@@ -105,4 +105,4 @@ The API is currently versioned under `/v1`.
 - It uses `gofiber` for the web framework.
 - The `urfave/cli` library is used for the command-line interface.
 - Database queries are built using `squirrel`.
-- Testing is done with the standard `testify` library.
+- Testing is done with the `testify` library.

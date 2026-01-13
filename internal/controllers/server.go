@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"kids-checkin/internal/controllers/checkinv1"
+	"kids-checkin/internal/controllers/locationgroupv1"
 	"kids-checkin/internal/controllers/locationv1"
 	"kids-checkin/internal/web/static"
 
@@ -90,9 +91,23 @@ func StartServer(port int, db *sql.DB) error {
 }
 
 func registerRoutes(app *fiber.App, db *sql.DB) {
+	app.Get("/", func(c *fiber.Ctx) error {
+		f, err := static.EmbeddedFS.Open("pages/home/index.html")
+		if err != nil {
+			return fiber.ErrInternalServerError
+		}
+		defer f.Close()
+
+		c.Type("html")
+		return c.SendStream(f)
+	})
+
 	checkinController := checkinv1.NewController(db)
 	checkinController.RegisterRoutes(app)
 
-	areaController := locationv1.NewController(db)
-	areaController.RegisterRoutes(app)
+	locationV1Controller := locationv1.NewController(db)
+	locationV1Controller.RegisterRoutes(app)
+
+	locationGroupV1Controller := locationgroupv1.NewController(db)
+	locationGroupV1Controller.RegisterRoutes(app)
 }

@@ -52,7 +52,7 @@ func (controller *Controller) PostCreateLocation(c *fiber.Ctx) error {
 
 	_, err = controller.repo.CreateLocation(c.Context(), location.Location{
 		Name:             a.Name,
-		PlanningCenterID: a.PublicID,
+		PlanningCenterID: a.PlanningCenterID,
 	})
 
 	if err != nil {
@@ -66,14 +66,20 @@ func (controller *Controller) PostCreateLocation(c *fiber.Ctx) error {
 }
 
 type Location struct {
-	PublicID string `json:"public_id"`
-	Name     string `json:"name"`
+	Name                   string  `json:"name"`
+	PlanningCenterID       string  `json:"planning_center_id"`
+	PlanningCenterParentID *string `json:"planning_center_parent_id"`
+	LocationGroupID        *int64  `json:"location_group_id"`
+	AutoFetch              bool    `json:"auto_fetch"`
 }
 
 func repoLocationToOutput(location location.Location) Location {
 	return Location{
-		PublicID: location.PlanningCenterID,
-		Name:     location.Name,
+		Name:                   location.Name,
+		PlanningCenterID:       location.PlanningCenterID,
+		PlanningCenterParentID: location.PlanningCenterParentID,
+		LocationGroupID:        location.LocationGroupID,
+		AutoFetch:              location.AutoFetch,
 	}
 }
 
