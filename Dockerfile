@@ -5,6 +5,8 @@ FROM golang:1.25-bookworm AS builder
 
 WORKDIR /app
 
+RUN ls
+
 # Download dependencies first for caching
 COPY go.mod go.sum ./
 RUN go mod download
