@@ -17,7 +17,8 @@ Thumbs.db
 # Environment variables
 .env*
 
-# air love reload
+# air live reload
 tmp
 
+# Seed database used for testing
 seed

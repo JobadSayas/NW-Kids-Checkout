@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"log/slog"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -11,6 +12,7 @@ var DB *sql.DB
 
 // InitDB initializes the database connection.
 func InitDB(dataSourceName string) (*sql.DB, error) {
+	slog.Info("Initializing database connection", slog.String("dsn", dataSourceName))
 	var err error
 	DB, err = sql.Open("sqlite3", dataSourceName)
 	if err != nil {
