@@ -71,6 +71,26 @@ make checkout-fetcher
 
 This will build the application and start the fetcher process.
 
+
+### Tailwind CSS Development
+When developing the frontend, you need nodejs and npm.
+
+Install:
+```shell
+npm install
+```
+
+Automatically regenerate the tailwind.css file:
+```shell
+npm run watch:css
+```
+
+
+Build the tailwind.css file:
+```shell
+npm run build:css
+```
+
 ### Running tests
 
 To run the test suite, use the `test` target:
