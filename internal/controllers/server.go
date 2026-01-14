@@ -16,16 +16,10 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/filesystem"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
-	"github.com/gofiber/template/html/v2"
 )
 
 func StartServer(port int, db *sql.DB) error {
-	// Create a new engine
-	templateEngine := html.New("internal/web/templates", ".tmpl")
-
 	app := fiber.New(fiber.Config{
-		Views: templateEngine,
-
 		// Override default error handler
 		ErrorHandler: func(ctx *fiber.Ctx, err error) error {
 			// Status code defaults to 500
