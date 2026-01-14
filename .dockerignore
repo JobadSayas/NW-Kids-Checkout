@@ -1,0 +1,24 @@
+# Git
+.git
+.gitignore
+
+# Go
+vendor/
+
+# Build artifacts
+bin/kids-checkin
+
+# IDE and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Environment variables
+.env*
+
+# air live reload
+tmp
+
+# Seed database used for testing
+seed

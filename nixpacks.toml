@@ -1,0 +1,21 @@
+[phases.setup]
+nixPkgs = ["pkgs.go_1_25", "pkgs.sqlite"]
+
+[phases.build]
+cmds = [
+    "go mod download",
+    "CGO_ENABLED=1 GOOS=linux go build -o nw-kids-checkout ."
+]
+
+[start]
+cmd = "./nw-kids-checkout apiserver"
+
+[variables]
+PORT = "3000"
+DB_FILE = "/data/kids-checkin.db"
+
+[env]
+CGO_ENABLED = "1"
+
+[mounts]
+"/data" = "persistent"

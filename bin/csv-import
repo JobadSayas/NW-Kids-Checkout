@@ -1,0 +1,23 @@
+#!/bin/bash
+
+set -euo pipefail
+
+echo "$DB_FILE"
+
+sqlite3 "$DB_FILE" <<'SQL'
+ATTACH 'seed/seed.db' AS seed;
+
+BEGIN;
+
+INSERT INTO locations
+SELECT *
+FROM seed.locations;
+
+INSERT INTO location_groups
+SELECT *
+FROM seed.location_groups;
+
+COMMIT;
+DETACH seed;
+
+SQL
