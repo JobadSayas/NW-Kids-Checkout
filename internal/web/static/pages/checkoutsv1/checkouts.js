@@ -150,15 +150,15 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initial fetch
     fetchChildrenData();
 
-    // Update current time immediately and every minute
+    // Update current time immediately and every second
     updateCurrentTime();
-    setInterval(updateCurrentTime, 60000);
+    setInterval(updateCurrentTime, 1000);
 
-    // Update minutes ago every minute
-    setInterval(updateTimes, 60000);
+    // Update minutes ago every second
+    setInterval(updateTimes, 1000);
 
-    // Fetch new data from API every 5 seconds
-    setInterval(fetchChildrenData, 5000);
+    // Fetch new data from API every 3 seconds
+    setInterval(fetchChildrenData, 3000);
 
     // Update all times every second (for demo/testing)
     setInterval(updateAllTimes, 1000);
