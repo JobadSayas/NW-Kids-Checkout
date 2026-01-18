@@ -99,8 +99,8 @@ function updateUI() {
     const previouslyCalledList = document.getElementById('previously-called-list');
     previouslyCalledList.innerHTML = '';
 
-    // Get next 7 children (excluding the first one which is current)
-    const previouslyCalledChildren = childrenData.slice(1, 8);
+    // Get next 100 children (excluding the first one which is current)
+    const previouslyCalledChildren = childrenData.slice(1, 100);
 
     if (previouslyCalledChildren.length === 0) {
         previouslyCalledList.innerHTML =
