@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -125,6 +126,8 @@ func (client *defaultClient) GetCheckoutsForLocation(ctx context.Context, locati
 	getURL += "?" + q.Encode()
 
 	done := false
+
+	slog.Info("getting checkins for locations", slog.String("location_id", locationID), slog.String("checked_out_on_or_after", checkedOutOnOrAfter.Format(time.RFC3339)))
 
 	for {
 		iterations++
