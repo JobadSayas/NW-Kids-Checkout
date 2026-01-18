@@ -45,7 +45,7 @@ async function fetchChildrenData() {
         if (limit) {
             outParams.append('limit', limit);
         } else {
-            outParams.append('limit', '30');
+            outParams.append('limit', '100');
         }
 
         const locationGroupName = params.get('location_group_name')
