@@ -197,15 +197,22 @@ func processLocationCheckouts(ctx context.Context, loc location.Location, checki
 
 // getLookBackTime returns the time to look back for checkouts based on the CHECKOUT_FETCHER_LOOKBACK_TIME env var
 var getLookBackTime = sync.OnceValue(func() time.Duration {
+	const defaultLookBackTime = -12 * time.Hour
+
 	lbStr := os.Getenv("CHECKOUT_FETCHER_LOOKBACK_TIME")
 	if lbStr == "" {
-		return 12 * time.Hour
+		return defaultLookBackTime
 	}
 
 	lb, err := time.ParseDuration(lbStr)
 	if err != nil {
-		slog.Warn("could not parse CHECKOUT_FETCHER_LOOKBACK_TIME, defaulting to 12h")
-		return 12 * time.Hour
+		slog.Warn("could not parse CHECKOUT_FETCHER_LOOKBACK_TIME, using default", slog.String("env_var", lbStr), slog.String("default", defaultLookBackTime.String()))
+		return defaultLookBackTime
+	}
+
+	if lb <= 0 {
+		slog.Warn("CHECKOUT_FETCHER_LOOKBACK_TIME must be greater than 0, using default", slog.String("env_var", lbStr), slog.String("default", defaultLookBackTime.String()))
+		return defaultLookBackTime
 	}
 
 	return lb
