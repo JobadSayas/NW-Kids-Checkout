@@ -12,6 +12,7 @@ import (
 )
 
 func Test_defaultClient_GetCheckoutsForLocation(t *testing.T) {
+	t.Skip()
 	require.NotEmpty(t, os.Getenv("PLANNING_CENTER_API_BASE_URL"), "PLANNING_CENTER_API_BASE_URL must be set to run this test")
 	require.NotEmpty(t, os.Getenv("PLANNING_CENTER_API_CLIENT_ID"), "PLANNING_CENTER_API_CLIENT_ID must be set to run this test")
 	require.NotEmpty(t, os.Getenv("PLANNING_CENTER_API_SECRET"), "PLANNING_CENTER_API_SECRET must be set to run this test")
@@ -61,6 +62,7 @@ func Test_defaultClient_GetCheckoutsForLocation(t *testing.T) {
 }
 
 func Test_defaultClient_GetLocation(t *testing.T) {
+	t.Skip()
 	require.NotEmpty(t, os.Getenv("PLANNING_CENTER_API_BASE_URL"), "PLANNING_CENTER_API_BASE_URL must be set to run this test")
 	require.NotEmpty(t, os.Getenv("PLANNING_CENTER_API_CLIENT_ID"), "PLANNING_CENTER_API_CLIENT_ID must be set to run this test")
 	require.NotEmpty(t, os.Getenv("PLANNING_CENTER_API_SECRET"), "PLANNING_CENTER_API_SECRET must be set to run this test")

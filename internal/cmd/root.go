@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"kids-checkin/internal/cmd/apiserver"
+	"kids-checkin/internal/cmd/checkins"
 	"kids-checkin/internal/cmd/checkoutsfetcher"
 	"kids-checkin/internal/cmd/location"
 
@@ -61,6 +62,11 @@ func NewCommand() *cli.Command {
 				Name:     "locations",
 				Usage:    "Commands to manage locations",
 				Commands: location.Commands,
+			},
+			{
+				Name:     "checkins",
+				Usage:    "Commands to manage checkins",
+				Commands: checkins.Commands,
 			},
 		},
 	}

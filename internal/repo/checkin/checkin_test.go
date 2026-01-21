@@ -168,4 +168,68 @@ func Test_sqliteRepo_CreateCheckin(t *testing.T) {
 	}
 }
 
-func toPointer[T comparable](v T) *T { return &v }
+func Test_sqliteRepo_RemoveOldCheckins(t *testing.T) {
+	s := NewRepo(testDB)
+
+	tests := []struct {
+		name      string
+		olderThan time.Time
+		expected  int64
+		expectErr bool
+		beforeFn  func(t *testing.T)
+		checkFn   func(t *testing.T)
+	}{
+		{
+			name:      "remove older than 1 day",
+			olderThan: time.Now().Add(-24 * time.Hour),
+			expected:  1,
+			expectErr: false,
+			beforeFn: func(t *testing.T) {
+				_, err := squirrel.Delete("checkins").RunWith(testDB).ExecContext(t.Context())
+				require.NoError(t, err)
+				_, err = s.CreateCheckin(t.Context(), Checkin{
+					PlanningCenterID: "plc_1234",
+					LocationID:       1,
+					FirstName:        "somefirstname1",
+					LastName:         "somelastname1",
+					SecurityCode:     "ABC123",
+					CheckedOutAt:     time.Now().Add(-24 * time.Hour).Add(-1 * time.Millisecond),
+				})
+				require.NoError(t, err)
+				_, err = s.CreateCheckin(t.Context(), Checkin{
+					PlanningCenterID: "plc_4321",
+					LocationID:       2,
+					FirstName:        "somefirstname2",
+					LastName:         "somelastname2",
+					SecurityCode:     "321CBA",
+					CheckedOutAt:     time.Now().Add(-2 * time.Hour),
+				})
+				require.NoError(t, err)
+			},
+			checkFn: func(t *testing.T) {
+				checkins, err := s.ListCheckins(t.Context(), Filter{})
+				require.NoError(t, err)
+				require.Len(t, checkins, 1, "unexpected number of checkins")
+				assert.Equal(t, "plc_4321", checkins[0].PlanningCenterID, "unexpected checkin")
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.beforeFn != nil {
+				tt.beforeFn(t)
+			}
+
+			actual, err := s.RemoveOldCheckins(t.Context(), tt.olderThan)
+			if tt.expectErr {
+				assert.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, actual)
+			if tt.checkFn != nil {
+				tt.checkFn(t)
+			}
+		})
+	}
+}

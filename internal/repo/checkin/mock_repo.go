@@ -1,6 +1,9 @@
 package checkin
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 type MockRepo struct {
 	ListCheckinsFunc          func(ctx context.Context, filter Filter) ([]Checkin, error)
@@ -8,6 +11,9 @@ type MockRepo struct {
 
 	CreateCheckinFunc          func(ctx context.Context, checkin Checkin) (Checkin, error)
 	CreateCheckinFuncCallCount int
+
+	RemoveOldCheckinsFunc          func(ctx context.Context, olderThan time.Time) (deletedCount int64, err error)
+	RemoveOldCheckinsFuncCallCount int
 }
 
 func (repo *MockRepo) ListCheckins(ctx context.Context, filter Filter) ([]Checkin, error) {
@@ -15,6 +21,7 @@ func (repo *MockRepo) ListCheckins(ctx context.Context, filter Filter) ([]Checki
 	if repo.ListCheckinsFunc != nil {
 		return repo.ListCheckinsFunc(ctx, filter)
 	}
+
 	panic("MockRepo.ListCheckins not implemented")
 }
 
@@ -23,5 +30,15 @@ func (repo *MockRepo) CreateCheckin(ctx context.Context, checkin Checkin) (Check
 	if repo.CreateCheckinFunc != nil {
 		return repo.CreateCheckinFunc(ctx, checkin)
 	}
+
 	panic("MockRepo.CreateCheckin not implemented")
+}
+
+func (repo *MockRepo) RemoveOldCheckins(ctx context.Context, olderThan time.Time) (deletedCount int64, err error) {
+	repo.RemoveOldCheckinsFuncCallCount++
+	if repo.RemoveOldCheckinsFunc != nil {
+		return repo.RemoveOldCheckinsFunc(ctx, olderThan)
+	}
+
+	panic("MockRepo.RemoveOldCheckins not implemented")
 }

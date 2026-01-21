@@ -206,12 +206,12 @@ var getLookBackTime = sync.OnceValue(func() time.Duration {
 
 	lb, err := time.ParseDuration(lbStr)
 	if err != nil {
-		slog.Warn("could not parse CHECKOUT_FETCHER_LOOKBACK_TIME, using default", slog.String("env_var", lbStr), slog.String("default", defaultLookBackTime.String()))
+		slog.Warn("could not parse CHECKOUT_FETCHER_LOOKBACK_TIME, using default", slog.String("env_var", lbStr), slog.Duration("default", defaultLookBackTime))
 		return defaultLookBackTime
 	}
 
 	if lb <= 0 {
-		slog.Warn("CHECKOUT_FETCHER_LOOKBACK_TIME must be greater than 0, using default", slog.String("env_var", lbStr), slog.String("default", defaultLookBackTime.String()))
+		slog.Warn("CHECKOUT_FETCHER_LOOKBACK_TIME must be greater than 0, using default", slog.String("env_var", lbStr), slog.Duration("default", defaultLookBackTime))
 		return defaultLookBackTime
 	}
 

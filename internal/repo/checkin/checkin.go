@@ -37,6 +37,7 @@ type Checkin struct {
 type Repo interface {
 	ListCheckins(ctx context.Context, filter Filter) ([]Checkin, error)
 	CreateCheckin(ctx context.Context, checkin Checkin) (Checkin, error)
+	RemoveOldCheckins(ctx context.Context, olderThan time.Time) (deletedCount int64, err error)
 }
 
 type sqliteRepo struct {
@@ -182,4 +183,21 @@ func (s *sqliteRepo) CreateCheckin(ctx context.Context, checkin Checkin) (Checki
 
 	checkin.ID = id
 	return checkin, nil
+}
+
+func (s *sqliteRepo) RemoveOldCheckins(ctx context.Context, olderThan time.Time) (int64, error) {
+	if time.Now().Before(olderThan) {
+		return 0, nil
+	}
+
+	res, err := squirrel.Delete("checkins").
+		Where(squirrel.Lt{"checked_out_at": olderThan.UTC()}).
+		RunWith(s.db).
+		ExecContext(ctx)
+	if err != nil {
+		return 0, err
+	}
+
+	ra, _ := res.RowsAffected()
+	return ra, err
 }
