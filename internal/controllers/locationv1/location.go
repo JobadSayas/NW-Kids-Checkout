@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"kids-checkin/internal/controllers/middleware"
+	"kids-checkin/internal/controllers/session"
 
 	"kids-checkin/internal/repo/location"
 
@@ -11,20 +13,23 @@ import (
 )
 
 type Controller struct {
-	repo location.Repo
+	repo         location.Repo
+	sessionStore session.Storer
 }
 
-func NewController(db *sql.DB) *Controller {
+func NewController(db *sql.DB, sessionStore session.Storer) *Controller {
 	return &Controller{
-		repo: location.NewRepo(db),
+		repo:         location.NewRepo(db),
+		sessionStore: sessionStore,
 	}
 }
 
 func (controller *Controller) RegisterRoutes(app *fiber.App) {
 	locationGroup := app.Group("/v1/locations")
+	locationGroup.Use(middleware.AuthRequired(controller.sessionStore, ""))
 
 	locationGroup.Get("", controller.GetListLocations)
-	locationGroup.Post("", controller.PostCreateLocation)
+	locationGroup.Post("", middleware.AuthRequired(controller.sessionStore, "admin"), controller.PostCreateLocation)
 }
 
 func (controller *Controller) GetListLocations(c *fiber.Ctx) error {

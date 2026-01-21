@@ -5,7 +5,6 @@ import (
 	"errors"
 
 	"kids-checkin/internal/controllers"
-	"kids-checkin/internal/db"
 
 	"github.com/urfave/cli/v3"
 )
@@ -17,13 +16,7 @@ func ServeCmd(ctx context.Context, cmd *cli.Command) error {
 		return errors.New("port must be greater than 0")
 	}
 
-	dbFile := cmd.String("db-file")
-	database, err := db.InitDB(dbFile)
-	if err != nil {
-		panic(err)
-	}
-
-	err = controllers.StartServer(port, database)
+	err := controllers.StartServer(port, cmd.String("db-file"))
 	if err != nil {
 		panic(err)
 	}

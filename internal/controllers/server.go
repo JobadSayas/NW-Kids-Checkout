@@ -4,21 +4,45 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"kids-checkin/internal/controllers/login"
 	"net/http"
 	"strconv"
+	"time"
 
 	"kids-checkin/internal/controllers/checkinv1"
 	"kids-checkin/internal/controllers/locationgroupv1"
 	"kids-checkin/internal/controllers/locationv1"
+	"kids-checkin/internal/db"
 	"kids-checkin/internal/web/static"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/filesystem"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
+	"github.com/gofiber/fiber/v2/middleware/session"
+	"github.com/gofiber/storage/sqlite3"
 )
 
-func StartServer(port int, db *sql.DB) error {
+func StartServer(port int, dbFilepath string) error {
+	database, err := db.InitDB(dbFilepath)
+	if err != nil {
+		panic(err)
+	}
+
+	storage := sqlite3.New(sqlite3.Config{
+		//Database: dbFilepath,
+		//Table:    "sessions",
+		Reset: false, // Don't clear sessions on start
+	})
+
+	// 2. Setup Session Middleware with 2-week TTL
+	store := session.New(session.Config{
+		Storage:        storage,
+		Expiration:     14 * 24 * time.Hour, // 2-week TTL
+		CookieHTTPOnly: true,                // Security: prevents JS from reading cookie
+		CookieSameSite: "Lax",
+	})
+
 	app := fiber.New(fiber.Config{
 		// Override default error handler
 		ErrorHandler: func(ctx *fiber.Ctx, err error) error {
@@ -51,7 +75,7 @@ func StartServer(port int, db *sql.DB) error {
 		TimeFormat: "2006-01-02T15:04:05Z",
 	}))
 
-	registerRoutes(app, db)
+	registerRoutes(app, database, store)
 
 	app.Get("favicon.ico", func(c *fiber.Ctx) error {
 		f, err := static.EmbeddedFS.Open("img/favicon.ico")
@@ -76,7 +100,7 @@ func StartServer(port int, db *sql.DB) error {
 		Browse:     true,
 	}))
 
-	err := app.Listen(":" + strconv.Itoa(port))
+	err = app.Listen(":" + strconv.Itoa(port))
 	if err != nil {
 		return err
 	}
@@ -84,7 +108,7 @@ func StartServer(port int, db *sql.DB) error {
 	return nil
 }
 
-func registerRoutes(app *fiber.App, db *sql.DB) {
+func registerRoutes(app *fiber.App, db *sql.DB, sessionStore *session.Store) {
 	app.Get("/", func(c *fiber.Ctx) error {
 		f, err := static.EmbeddedFS.Open("pages/home/index.html")
 		if err != nil {
@@ -96,12 +120,15 @@ func registerRoutes(app *fiber.App, db *sql.DB) {
 		return c.SendStream(f)
 	})
 
-	checkinController := checkinv1.NewController(db)
+	loginController := login.NewController(sessionStore)
+	loginController.RegisterRoutes(app)
+
+	checkinController := checkinv1.NewController(db, sessionStore)
 	checkinController.RegisterRoutes(app)
 
-	locationV1Controller := locationv1.NewController(db)
+	locationV1Controller := locationv1.NewController(db, sessionStore)
 	locationV1Controller.RegisterRoutes(app)
 
-	locationGroupV1Controller := locationgroupv1.NewController(db)
+	locationGroupV1Controller := locationgroupv1.NewController(db, sessionStore)
 	locationGroupV1Controller.RegisterRoutes(app)
 }

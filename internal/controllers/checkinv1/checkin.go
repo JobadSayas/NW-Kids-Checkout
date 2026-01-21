@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"kids-checkin/internal/controllers/middleware"
+	"kids-checkin/internal/controllers/session"
 	"kids-checkin/internal/web/static"
 	"log/slog"
 	"net/url"
@@ -25,6 +27,7 @@ const defaultCheckedOutAfterDelta = -12 * time.Hour
 type Controller struct {
 	checkinRepo  checkin.Repo
 	locationRepo location.Repo
+	sessionStore session.Storer
 	wsClients    map[*websocket.Conn]*wsClient
 }
 
@@ -33,21 +36,30 @@ type wsClient struct {
 	location             string
 }
 
-func NewController(db *sql.DB) *Controller {
+func NewController(db *sql.DB, sessionStore session.Storer) *Controller {
 	return &Controller{
 		checkinRepo:  checkin.NewRepo(db),
 		locationRepo: location.NewRepo(db),
+		sessionStore: sessionStore,
 		wsClients:    make(map[*websocket.Conn]*wsClient),
 	}
 }
 
 func (controller *Controller) RegisterRoutes(app *fiber.App) {
+	// Setup
 	checkinGroup := app.Group("/v1/checkins")
+	checkinGroup.Use(middleware.AuthRequired(controller.sessionStore, ""))
 
 	checkinGroup.Get("/checkouts", controller.Checkouts)
 }
 
 func (controller *Controller) Checkouts(c *fiber.Ctx) error {
+	sess, err := controller.sessionStore.Get(c)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "could not fetch session")
+	}
+
+	c.Locals("allowed", sess.Get("allowed"))
 	if websocket.IsWebSocketUpgrade(c) {
 		return controller.checkoutsWebsocket(c)
 	}

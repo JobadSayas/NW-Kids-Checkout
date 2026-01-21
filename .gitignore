@@ -5,3 +5,5 @@ kids-checkin.db*
 bin/kids-checkin
 .env
 tmp/*
+
+fiber.sqlite3

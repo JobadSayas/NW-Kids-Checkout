@@ -2,6 +2,8 @@ package locationgroupv1
 
 import (
 	"database/sql"
+	"kids-checkin/internal/controllers/middleware"
+	"kids-checkin/internal/controllers/session"
 	"strconv"
 	"strings"
 
@@ -11,17 +13,20 @@ import (
 )
 
 type Controller struct {
-	repo location.Repo
+	repo         location.Repo
+	sessionStore session.Storer
 }
 
-func NewController(db *sql.DB) *Controller {
+func NewController(db *sql.DB, sessionStore session.Storer) *Controller {
 	return &Controller{
-		repo: location.NewRepo(db),
+		repo:         location.NewRepo(db),
+		sessionStore: sessionStore,
 	}
 }
 
 func (controller *Controller) RegisterRoutes(app *fiber.App) {
 	locationGroup := app.Group("/v1/location_groups")
+	locationGroup.Use(middleware.AuthRequired(controller.sessionStore, ""))
 
 	locationGroup.Get("", controller.GetListLocationGroups)
 }
