@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NW Kids - Admin</title>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico"/>
+    <link rel="stylesheet" href="/static/css/tailwind.css">
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-slate-50 text-slate-900">
+<div class="max-w-5xl mx-auto px-6 py-12">
+    <header class="flex flex-col gap-3 mb-10">
+        <div class="flex items-center gap-3">
+            <img src="/static/img/NWKids-logo.svg" alt="NWKids Logo" class="h-16 md:h-24 w-auto">
+            <h1 class="text-3xl font-semibold">Admin Landing</h1>
+        </div>
+        <p class="text-sm text-slate-600">Quick links to manage Kids Checkout configuration.</p>
+    </header>
+
+    <div class="grid gap-4 md:grid-cols-2">
+        <a href="/admin/locations" class="group flex items-center justify-between rounded-xl border border-slate-200 bg-white px-5 py-4 text-left shadow-sm transition hover:border-slate-300 hover:shadow-md">
+            <div>
+                <div class="text-lg font-semibold text-slate-800">Manage locations</div>
+                <p class="text-sm text-slate-600">Update location groups and auto-fetch settings.</p>
+            </div>
+            <span class="text-2xl text-slate-400 transition group-hover:text-slate-600" aria-hidden="true">→</span>
+        </a>
+
+        <div class="flex flex-col justify-center rounded-xl border border-dashed border-slate-200 bg-white/60 px-5 py-4 text-sm text-slate-500">
+            Additional admin tools will appear here as they launch.
+        </div>
+    </div>
+
+    <div class="mt-10">
+        <a href="/" class="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-900">
+            <span aria-hidden="true">←</span>
+            Back to home
+        </a>
+    </div>
+</div>
+</body>
+</html>

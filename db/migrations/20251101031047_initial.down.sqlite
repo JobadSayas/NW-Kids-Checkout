@@ -1,3 +1,7 @@
 DROP TABLE locations;
 
+DROP TABLE location_groups;
+
 DROP TABLE checkins;
+
+DROP TABLE events;

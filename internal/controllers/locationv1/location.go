@@ -1,11 +1,13 @@
 package locationv1
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"kids-checkin/internal/controllers/middleware"
 	"kids-checkin/internal/controllers/session"
+	"strconv"
 
 	"kids-checkin/internal/repo/location"
 
@@ -30,6 +32,7 @@ func (controller *Controller) RegisterRoutes(app *fiber.App) {
 
 	locationGroup.Get("", controller.GetListLocations)
 	locationGroup.Post("", middleware.AuthRequired(controller.sessionStore, "admin"), controller.PostCreateLocation)
+	locationGroup.Patch("/:id", middleware.AuthRequired(controller.sessionStore, "admin"), controller.PatchUpdateLocation)
 }
 
 func (controller *Controller) GetListLocations(c *fiber.Ctx) error {
@@ -70,7 +73,59 @@ func (controller *Controller) PostCreateLocation(c *fiber.Ctx) error {
 	return nil
 }
 
+func (controller *Controller) PatchUpdateLocation(c *fiber.Ctx) error {
+	locationID, err := strconv.ParseInt(c.Params("id"), 10, 64)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid location id")
+	}
+
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(c.Body(), &payload); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid JSON")
+	}
+
+	locations, err := controller.repo.ListLocations(c.Context(), location.LocationFilter{ID: locationID})
+	if err != nil {
+		return err
+	}
+	if len(locations) == 0 {
+		return fiber.NewError(fiber.StatusNotFound, "location not found")
+	}
+
+	current := locations[0]
+
+	if raw, ok := payload["location_group_id"]; ok {
+		if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+			current.LocationGroupID = nil
+		} else {
+			var groupID int64
+			if err := json.Unmarshal(raw, &groupID); err != nil {
+				return fiber.NewError(fiber.StatusBadRequest, "invalid location_group_id")
+			}
+			current.LocationGroupID = &groupID
+		}
+	}
+
+	if raw, ok := payload["auto_fetch"]; ok {
+		var autoFetch bool
+		if err := json.Unmarshal(raw, &autoFetch); err != nil {
+			return fiber.NewError(fiber.StatusBadRequest, "invalid auto_fetch")
+		}
+		current.AutoFetch = autoFetch
+	}
+
+	if err := controller.repo.UpdateLocation(c.Context(), current); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fiber.NewError(fiber.StatusNotFound, "location not found")
+		}
+		return err
+	}
+
+	return c.JSON(repoLocationToOutput(current))
+}
+
 type Location struct {
+	ID                     int64   `json:"id"`
 	Name                   string  `json:"name"`
 	PlanningCenterID       string  `json:"planning_center_id"`
 	PlanningCenterParentID *string `json:"planning_center_parent_id"`
@@ -80,6 +135,7 @@ type Location struct {
 
 func repoLocationToOutput(location location.Location) Location {
 	return Location{
+		ID:                     location.ID,
 		Name:                   location.Name,
 		PlanningCenterID:       location.PlanningCenterID,
 		PlanningCenterParentID: location.PlanningCenterParentID,

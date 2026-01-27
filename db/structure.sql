@@ -8,10 +8,11 @@ CREATE TABLE location_groups
 CREATE TABLE locations
 (
     id                        INTEGER PRIMARY KEY,
-    planning_center_id        TEXT NOT NULL UNIQUE,
+    planning_center_id        TEXT    NOT NULL UNIQUE,
     planning_center_parent_id TEXT     DEFAULT NULL,
     location_group_id         INTEGER  DEFAULT NULL,
-    name                      TEXT NOT NULL,
+    event_id                  INTEGER NOT NULL,
+    name                      TEXT    NOT NULL,
     auto_fetch                INTEGER  DEFAULT 0,
     last_checked_out_time     DATETIME DEFAULT NULL
 );
@@ -28,3 +29,9 @@ CREATE TABLE checkins
     checked_out_at     DATETIME DEFAULT NULL
 );
 CREATE INDEX idx_checked_out_at ON checkins (checked_out_at);
+CREATE TABLE events
+(
+    id                 INTEGER PRIMARY KEY,
+    name               TEXT NOT NULL UNIQUE,
+    planning_center_id TEXT NOT NULL
+);

@@ -32,6 +32,7 @@ type Location struct {
 	ID                     int64
 	PlanningCenterID       string
 	PlanningCenterParentID *string
+	EventID                int64
 	LocationGroupID        *int64
 	Name                   string
 	AutoFetch              bool
@@ -108,6 +109,7 @@ func (repo *sqliteRepo) ListLocations(ctx context.Context, filter LocationFilter
 			"id",
 			"planning_center_id",
 			"planning_center_parent_id",
+			"event_id",
 			"location_group_id",
 			"name",
 			"auto_fetch",
@@ -149,7 +151,7 @@ func (repo *sqliteRepo) ListLocations(ctx context.Context, filter LocationFilter
 		var lgIDSQL sql.NullInt64
 		var pcpIDSQL sql.NullString
 		var lastFetchedAtSQL sql.NullTime
-		err := rows.Scan(&location.ID, &location.PlanningCenterID, &pcpIDSQL, &lgIDSQL, &location.Name, &location.AutoFetch, &lastFetchedAtSQL)
+		err := rows.Scan(&location.ID, &location.PlanningCenterID, &pcpIDSQL, &location.EventID, &lgIDSQL, &location.Name, &location.AutoFetch, &lastFetchedAtSQL)
 		if err != nil {
 			return nil, err
 		}
@@ -172,8 +174,8 @@ func (repo *sqliteRepo) ListLocations(ctx context.Context, filter LocationFilter
 var ErrLocationExists = errors.New("location with Planning Center ID already exists")
 
 func (repo *sqliteRepo) CreateLocation(ctx context.Context, location Location) (Location, error) {
-	columns := []string{"planning_center_id", "name", "auto_fetch"}
-	values := []any{location.PlanningCenterID, location.Name, location.AutoFetch}
+	columns := []string{"planning_center_id", "event_id", "name", "auto_fetch"}
+	values := []any{location.PlanningCenterID, location.EventID, location.Name, location.AutoFetch}
 
 	if location.PlanningCenterParentID != nil {
 		columns = append(columns, "planning_center_parent_id")
@@ -215,6 +217,7 @@ func (repo *sqliteRepo) UpdateLocation(ctx context.Context, location Location) e
 	setMap := map[string]any{
 		"planning_center_id":        location.PlanningCenterID,
 		"planning_center_parent_id": location.PlanningCenterParentID,
+		"event_id":                  location.EventID,
 		"location_group_id":         location.LocationGroupID,
 		"name":                      location.Name,
 		"auto_fetch":                location.AutoFetch,

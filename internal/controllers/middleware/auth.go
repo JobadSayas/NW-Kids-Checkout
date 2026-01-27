@@ -6,6 +6,7 @@ import (
 	"net/url"
 
 	"kids-checkin/internal/controllers/session"
+	"kids-checkin/internal/web/static"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -34,6 +35,18 @@ func AuthRequired(sessionStore session.Storer, allowedRoles ...string) fiber.Han
 			}
 		}
 
-		return c.Status(http.StatusForbidden).SendString("Forbidden: Insufficient permissions")
+		accepts := c.Accepts(fiber.MIMETextHTML, fiber.MIMEApplicationJSON)
+		if accepts == fiber.MIMETextHTML {
+			f, err := static.EmbeddedFS.Open("pages/errors/forbidden.html")
+			if err != nil {
+				return fiber.ErrInternalServerError
+			}
+			defer f.Close()
+
+			c.Type("html")
+			return c.Status(http.StatusForbidden).SendStream(f)
+		}
+
+		return c.Status(http.StatusForbidden).JSON(fiber.Map{"error": "Forbidden: Insufficient permissions"})
 	}
 }

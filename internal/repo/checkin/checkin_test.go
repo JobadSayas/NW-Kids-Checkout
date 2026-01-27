@@ -32,11 +32,11 @@ func TestMain(m *testing.M) {
 func Test_sqliteRepo_ListCheckins(t *testing.T) {
 	builder := squirrel.Insert("locations").
 		RunWith(testDB).
-		Columns("name", "planning_center_id")
-	res, err := builder.Values("location1", "plloc_1234").ExecContext(t.Context())
+		Columns("name", "planning_center_id", "event_id")
+	res, err := builder.Values("location1", "plloc_1234", 1).ExecContext(t.Context())
 	require.NoError(t, err)
 	location1ID, _ := res.LastInsertId()
-	res, err = builder.Values("location1", "plloc_1235").ExecContext(t.Context())
+	res, err = builder.Values("location1", "plloc_1235", 1).ExecContext(t.Context())
 	require.NoError(t, err)
 	location2ID, _ := res.LastInsertId()
 

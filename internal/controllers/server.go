@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"kids-checkin/internal/controllers/admin"
 	"kids-checkin/internal/controllers/login"
 	"net/http"
 	"strconv"
@@ -30,9 +31,8 @@ func StartServer(port int, dbFilepath string) error {
 	}
 
 	storage := sqlite3.New(sqlite3.Config{
-		//Database: dbFilepath,
-		//Table:    "sessions",
-		Reset: false, // Don't clear sessions on start
+		Database: dbFilepath,
+		Reset:    false, // Don't clear sessions on start
 	})
 
 	// 2. Setup Session Middleware with 2-week TTL
@@ -120,6 +120,17 @@ func registerRoutes(app *fiber.App, db *sql.DB, sessionStore *session.Store) {
 		return c.SendStream(f)
 	})
 
+	app.Get("/api/session", func(c *fiber.Ctx) error {
+		sess, _ := sessionStore.Get(c)
+		role, _ := sess.Get("role").(string)
+		authenticated, _ := sess.Get("authenticated").(bool)
+
+		return c.JSON(fiber.Map{
+			"authenticated": authenticated,
+			"role":          role,
+		})
+	})
+
 	loginController := login.NewController(sessionStore)
 	loginController.RegisterRoutes(app)
 
@@ -131,4 +142,7 @@ func registerRoutes(app *fiber.App, db *sql.DB, sessionStore *session.Store) {
 
 	locationGroupV1Controller := locationgroupv1.NewController(db, sessionStore)
 	locationGroupV1Controller.RegisterRoutes(app)
+
+	adminController := admin.NewController(sessionStore)
+	adminController.RegisterRoutes(app)
 }

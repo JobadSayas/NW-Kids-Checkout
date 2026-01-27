@@ -302,3 +302,61 @@ func (client *defaultClient) GetLocation(ctx context.Context, locationID string,
 
 	return locations, nil
 }
+
+func (client *defaultClient) GetEvents(ctx context.Context) ([]Event, error) {
+	getURL, err := url.JoinPath(client.baseURL, "check-ins", "v2", "events")
+	if err != nil {
+		return nil, err
+	}
+
+	q := url.Values{}
+	q.Add("filter", "not_archived")
+	getURL += "?" + q.Encode()
+
+	var events []Event
+
+	for getURL != "" {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, getURL, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		req.SetBasicAuth(client.clientID, client.secret)
+		req.Header.Set("Accept", "application/vnd.api+json")
+
+		resp, err := client.httpClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
+
+		defer resp.Body.Close()
+
+		by, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, err
+		}
+
+		if resp.StatusCode >= http.StatusBadRequest {
+			return nil, &ClientError{
+				statusCode: resp.StatusCode,
+				errMsg:     string(by),
+			}
+		}
+
+		var decoded eventsResponse
+		if err := json.Unmarshal(by, &decoded); err != nil {
+			return nil, err
+		}
+
+		for _, data := range decoded.Data {
+			events = append(events, Event{
+				ID:   data.ID,
+				Name: data.Attributes.Name,
+			})
+		}
+
+		getURL = decoded.Links.Next
+	}
+
+	return events, nil
+}

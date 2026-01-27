@@ -5,6 +5,9 @@
 # Go
 vendor/
 
+# node
+node_modules
+
 # Build artifacts
 bin/kids-checkin
 
