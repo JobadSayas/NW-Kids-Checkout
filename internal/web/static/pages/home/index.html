@@ -45,11 +45,19 @@
     
     <!-- Main Content -->
     <div class="relative z-10 min-h-screen flex flex-col">
-        <div id="admin-link" class="hidden absolute top-6 right-6">
-            <a href="/admin" class="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:text-slate-900">
-                Admin
-                <span aria-hidden="true">→</span>
-            </a>
+        <div class="absolute top-6 right-6 flex items-center gap-3">
+            <div id="login-link" class="hidden">
+                <a href="/login?next=/" class="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:text-slate-900">
+                    Log In
+                    <span aria-hidden="true">→</span>
+                </a>
+            </div>
+            <div id="admin-link" class="hidden">
+                <a href="/admin" class="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:text-slate-900">
+                    Admin
+                    <span aria-hidden="true">→</span>
+                </a>
+            </div>
         </div>
         
         <!-- Main content area -->
@@ -60,7 +68,7 @@
             </div>
 
             <div class="text-center text-lg md:text-xl text-gray-600 mb-8">
-                Select department to see checkout
+                Select department to see checkouts
             </div>
             
             <!-- Cards Container -->
@@ -119,12 +127,19 @@
         async function revealAdminLink() {
             try {
                 const response = await fetch("/api/session", { credentials: "same-origin" });
+                const loginLink = document.getElementById("login-link");
+                const adminLink = document.getElementById("admin-link");
                 if (!response.ok) {
+                    loginLink.classList.remove("hidden");
                     return;
                 }
                 const data = await response.json();
-                if (data && data.role === "admin") {
-                    document.getElementById("admin-link").classList.remove("hidden");
+                if (!data || !data.authenticated) {
+                    loginLink.classList.remove("hidden");
+                    return;
+                }
+                if (data.role === "admin") {
+                    adminLink.classList.remove("hidden");
                 }
             } catch (error) {
                 return;
