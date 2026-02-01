@@ -8,6 +8,7 @@ import (
 	"kids-checkin/internal/controllers/login"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"kids-checkin/internal/controllers/checkinv1"
@@ -56,6 +57,20 @@ func StartServer(port int, dbFilepath string) error {
 			if errors.As(err, &e) {
 				message = e.Message
 				code = e.Code
+			}
+
+			acceptsHTML := ctx.Accepts("html") != ""
+			wantsHTML := acceptsHTML || strings.HasSuffix(ctx.Path(), ".html")
+			if code == fiber.StatusNotFound && wantsHTML {
+				f, openErr := static.EmbeddedFS.Open("pages/errors/404.html")
+				if openErr != nil {
+					return ctx.Status(fiber.StatusInternalServerError).SendString("Internal Server Error")
+				}
+				defer f.Close()
+
+				ctx.Status(code)
+				ctx.Type("html")
+				return ctx.SendStream(f)
 			}
 
 			// Send custom error page
