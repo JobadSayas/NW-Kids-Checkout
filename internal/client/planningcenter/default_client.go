@@ -132,6 +132,7 @@ func (client *defaultClient) GetCheckoutsForLocation(ctx context.Context, locati
 	for {
 		iterations++
 		if iterations >= 10 {
+			// 250 checkouts should be more than enough.
 			break
 		}
 		err := func() error {
@@ -173,22 +174,13 @@ func (client *defaultClient) GetCheckoutsForLocation(ctx context.Context, locati
 				return err
 			}
 
-			for _, item := range decoded.Data {
-				if item.Attributes.CheckedOutAt.Before(checkedOutOnOrAfter) {
-					done = true
-					return nil
-				}
-				data = append(data, Checkout{
-					ID:           item.ID,
-					FirstName:    item.Attributes.FirstName,
-					LastName:     item.Attributes.LastName,
-					CheckedOutAt: item.Attributes.CheckedOutAt,
-					SecurityCode: item.Attributes.SecurityCode,
-				})
-				if limit > 0 && len(data) >= limit {
-					done = true
-					return nil
-				}
+			var td []Checkout
+			td, done = getFilteredResults(decoded, checkedOutOnOrAfter, limit)
+			if len(td) > 0 {
+				data = append(data, td...)
+			}
+			if done {
+				return nil
 			}
 
 			getURL = decoded.Links.Next
@@ -359,4 +351,25 @@ func (client *defaultClient) GetEvents(ctx context.Context) ([]Event, error) {
 	}
 
 	return events, nil
+}
+
+func getFilteredResults(decoded checkinResponse, checkedOutOnOrAfter time.Time, limit int) (data []Checkout, done bool) {
+	for _, item := range decoded.Data {
+		if item.Attributes.CheckedOutAt.Before(checkedOutOnOrAfter.Add(-1 * time.Second)) {
+			done = true
+			return
+		}
+		data = append(data, Checkout{
+			ID:           item.ID,
+			FirstName:    item.Attributes.FirstName,
+			LastName:     item.Attributes.LastName,
+			CheckedOutAt: item.Attributes.CheckedOutAt,
+			SecurityCode: item.Attributes.SecurityCode,
+		})
+		if limit > 0 && len(data) >= limit {
+			done = true
+			return
+		}
+	}
+	return
 }
