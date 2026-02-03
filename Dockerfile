@@ -24,9 +24,9 @@ RUN CGO_ENABLED=1 GOOS=linux go build -o /app/nw-kids-checkout .
 # =====================================
 FROM debian:bookworm-slim
 
-# Install runtime dependencies: CA certs for TLS, SQLite
+# Install runtime dependencies: CA certs for TLS, SQLite CLI
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates \
+    && apt-get install -y --no-install-recommends ca-certificates sqlite3 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
