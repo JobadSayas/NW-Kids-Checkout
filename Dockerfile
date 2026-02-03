@@ -5,14 +5,16 @@ FROM golang:1.25-bookworm AS builder
 
 WORKDIR /app
 
-RUN ls
-
 # Download dependencies first for caching
 COPY go.mod go.sum ./
 RUN go mod download
 
 # Copy source code
 COPY . .
+
+# Install migrate binary (SQLite driver requires CGO + sqlite build tag)
+ARG MIGRATE_VERSION=4.17.1
+RUN CGO_ENABLED=1 GOBIN=/app/bin go install -tags "sqlite" github.com/golang-migrate/migrate/v4/cmd/migrate@v${MIGRATE_VERSION}
 
 # Build Go binary with CGO enabled (needed for SQLite)
 RUN CGO_ENABLED=1 GOOS=linux go build -o /app/nw-kids-checkout .
@@ -31,6 +33,10 @@ WORKDIR /app
 
 # Copy the compiled Go binary
 COPY --from=builder /app/nw-kids-checkout .
+
+# Copy migrate binary and migration files
+COPY --from=builder /app/bin/migrate /usr/local/bin/migrate
+COPY db/migrations /app/db/migrations
 
 # Create a directory for SQLite database + WAL/SHM
 RUN mkdir /data

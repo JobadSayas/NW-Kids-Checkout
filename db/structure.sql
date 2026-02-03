@@ -35,3 +35,4 @@ CREATE TABLE events
     name               TEXT NOT NULL UNIQUE,
     planning_center_id TEXT NOT NULL
 );
+CREATE UNIQUE INDEX idx_location_groups_name ON location_groups (name);
