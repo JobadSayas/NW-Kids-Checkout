@@ -12,9 +12,9 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Install migrate binary (SQLite driver requires CGO + sqlite build tag)
-ARG MIGRATE_VERSION=4.17.1
-RUN CGO_ENABLED=1 GOBIN=/app/bin go install -tags "sqlite" github.com/golang-migrate/migrate/v4/cmd/migrate@v${MIGRATE_VERSION}
+# Install migrate binary (SQLite driver requires CGO + sqlite3 build tag)
+ARG MIGRATE_VERSION=v4.17.1
+RUN CGO_ENABLED=1 GOBIN=/app/bin go install -tags 'sqlite3' github.com/golang-migrate/migrate/v4/cmd/migrate@${MIGRATE_VERSION}
 
 # Build Go binary with CGO enabled (needed for SQLite)
 RUN CGO_ENABLED=1 GOOS=linux go build -o /app/nw-kids-checkout .
