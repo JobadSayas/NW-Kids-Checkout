@@ -39,8 +39,8 @@ func StartServer(port int, dbFilepath string) error {
 	// 2. Setup Session Middleware with 2-week TTL
 	store := session.New(session.Config{
 		Storage:        storage,
-		Expiration:     14 * 24 * time.Hour, // 2-week TTL
-		CookieHTTPOnly: true,                // Security: prevents JS from reading cookie
+		Expiration:     180 * 24 * time.Hour, // 180-day TTL
+		CookieHTTPOnly: true,                 // Security: prevents JS from reading cookie
 		CookieSameSite: "Lax",
 	})
 
