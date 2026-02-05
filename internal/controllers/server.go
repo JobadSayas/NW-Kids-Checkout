@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"kids-checkin/internal/controllers/checkinv1"
+	"kids-checkin/internal/controllers/eventv1"
 	"kids-checkin/internal/controllers/locationgroupv1"
 	"kids-checkin/internal/controllers/locationv1"
 	"kids-checkin/internal/db"
@@ -157,6 +158,9 @@ func registerRoutes(app *fiber.App, db *sql.DB, sessionStore *session.Store) {
 
 	locationGroupV1Controller := locationgroupv1.NewController(db, sessionStore)
 	locationGroupV1Controller.RegisterRoutes(app)
+
+	eventV1Controller := eventv1.NewController(db, sessionStore)
+	eventV1Controller.RegisterRoutes(app)
 
 	adminController := admin.NewController(sessionStore)
 	adminController.RegisterRoutes(app)

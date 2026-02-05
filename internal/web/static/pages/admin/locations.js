@@ -5,6 +5,7 @@ const locationsBody = document.getElementById('locations-body');
 
 let locationGroups = [];
 let locations = [];
+let eventsById = new Map();
 let pendingRequests = 0;
 
 function setPageStatus(message, tone = 'info') {
@@ -48,15 +49,39 @@ async function loadData() {
 
         locationGroups = groups;
         locations = locationsResponse;
+        await loadEventsForLocations();
         renderLocations();
     } catch (error) {
         setPageStatus(`Failed to load locations: ${error.message}`, 'error');
         locationsBody.innerHTML = `
             <tr>
-                <td class="px-4 py-6 text-center text-slate-500" colspan="4">Unable to load locations.</td>
+                <td class="px-4 py-6 text-center text-slate-500" colspan="5">Unable to load locations.</td>
             </tr>
         `;
     }
+}
+
+async function loadEventsForLocations() {
+    eventsById = new Map();
+    const eventIds = Array.from(new Set(locations.map(location => location.event_id).filter(id => id)));
+    if (!eventIds.length) {
+        return;
+    }
+
+    const results = await Promise.all(
+        eventIds.map(async id => {
+            try {
+                const event = await fetchJson(`/v1/events/${id}`);
+                return [id, event];
+            } catch (error) {
+                return [id, null];
+            }
+        })
+    );
+
+    results.forEach(([id, event]) => {
+        eventsById.set(id, event);
+    });
 }
 
 function getLocationGroupName(groupId) {
@@ -76,11 +101,22 @@ function getPlanningCenterParentName(location) {
     return parent ? parent.name : 'Unknown parent';
 }
 
+function getEventName(location) {
+    if (!location.event_id) {
+        return 'Unassigned';
+    }
+    const event = eventsById.get(location.event_id);
+    if (!event) {
+        return 'Unknown event';
+    }
+    return event.name || 'Unnamed event';
+}
+
 function renderLocations() {
     if (!locations.length) {
         locationsBody.innerHTML = `
             <tr>
-                <td class="px-4 py-6 text-center text-slate-500" colspan="4">No locations found.</td>
+                <td class="px-4 py-6 text-center text-slate-500" colspan="5">No locations found.</td>
             </tr>
         `;
         return;
@@ -94,6 +130,7 @@ function renderLocations() {
         row.innerHTML = `
             <td class="px-4 py-4 font-medium text-slate-900">${location.name}</td>
             <td class="px-4 py-4 text-slate-600">${getPlanningCenterParentName(location)}</td>
+            <td class="px-4 py-4 text-slate-600">${getEventName(location)}</td>
             <td class="px-4 py-4">
                 <select class="location-group-select w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm">
                     <option value="">Unassigned</option>

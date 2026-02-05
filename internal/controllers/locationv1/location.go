@@ -129,6 +129,7 @@ type Location struct {
 	Name                   string  `json:"name"`
 	PlanningCenterID       string  `json:"planning_center_id"`
 	PlanningCenterParentID *string `json:"planning_center_parent_id"`
+	EventID                int64   `json:"event_id"`
 	LocationGroupID        *int64  `json:"location_group_id"`
 	AutoFetch              bool    `json:"auto_fetch"`
 }
@@ -139,6 +140,7 @@ func repoLocationToOutput(location location.Location) Location {
 		Name:                   location.Name,
 		PlanningCenterID:       location.PlanningCenterID,
 		PlanningCenterParentID: location.PlanningCenterParentID,
+		EventID:                location.EventID,
 		LocationGroupID:        location.LocationGroupID,
 		AutoFetch:              location.AutoFetch,
 	}
