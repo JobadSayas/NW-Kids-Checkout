@@ -7,6 +7,7 @@ import (
 
 	"kids-checkin/internal/controllers/middleware"
 	"kids-checkin/internal/controllers/session"
+	"kids-checkin/internal/repo"
 	"kids-checkin/internal/repo/event"
 
 	"github.com/gofiber/fiber/v2"
@@ -40,7 +41,7 @@ func (controller *Controller) GetEventByID(c *fiber.Ctx) error {
 
 	result, err := controller.repo.GetEventByID(c.Context(), id)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, repo.ErrNotFound) {
 			return fiber.NewError(fiber.StatusNotFound, "event not found")
 		}
 		return err

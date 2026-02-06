@@ -1,11 +1,11 @@
 package location
 
 import (
-	"database/sql"
 	"testing"
 	"time"
 
 	"kids-checkin/internal/db"
+	"kids-checkin/internal/repo"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -211,7 +211,7 @@ func Test_sqliteRepo_UpdateLocation_NotFound(t *testing.T) {
 		Name:             "Missing",
 		AutoFetch:        false,
 	})
-	assert.ErrorIs(t, err, sql.ErrNoRows)
+	assert.ErrorIs(t, err, repo.ErrNotFound)
 }
 
 func Test_sqliteRepo_ListLocationGroups(t *testing.T) {

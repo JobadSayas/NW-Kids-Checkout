@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"time"
 
+	"kids-checkin/internal/repo"
+
 	"github.com/Masterminds/squirrel"
 )
 
@@ -56,11 +58,11 @@ func NewRepo(db *sql.DB) Repo {
 	}
 }
 
-func (repo *sqliteRepo) ListLocationGroups(ctx context.Context, filter LocationGroupFilter) ([]LocationGroup, error) {
+func (r *sqliteRepo) ListLocationGroups(ctx context.Context, filter LocationGroupFilter) ([]LocationGroup, error) {
 	builder := squirrel.
 		Select("id", "name").
 		From("location_groups").
-		RunWith(repo.db)
+		RunWith(r.db)
 
 	if filter.ID > 0 {
 		builder = builder.Where(squirrel.Eq{"id": filter.ID})
@@ -88,10 +90,10 @@ func (repo *sqliteRepo) ListLocationGroups(ctx context.Context, filter LocationG
 	return groups, nil
 }
 
-func (repo *sqliteRepo) CreateLocationGroup(ctx context.Context, lg LocationGroup) (LocationGroup, error) {
+func (r *sqliteRepo) CreateLocationGroup(ctx context.Context, lg LocationGroup) (LocationGroup, error) {
 	builder := squirrel.
 		Insert("location_groups").
-		RunWith(repo.db).
+		RunWith(r.db).
 		Columns("name").
 		Values(lg.Name).
 		SuffixExpr(squirrel.Expr("ON CONFLICT(name) DO UPDATE SET name = ?", lg.Name))
@@ -103,7 +105,7 @@ func (repo *sqliteRepo) CreateLocationGroup(ctx context.Context, lg LocationGrou
 	return lg, nil
 }
 
-func (repo *sqliteRepo) ListLocations(ctx context.Context, filter LocationFilter) ([]Location, error) {
+func (r *sqliteRepo) ListLocations(ctx context.Context, filter LocationFilter) ([]Location, error) {
 	builder := squirrel.
 		Select(
 			"id",
@@ -116,7 +118,7 @@ func (repo *sqliteRepo) ListLocations(ctx context.Context, filter LocationFilter
 			"last_checked_out_time",
 		).
 		From("locations").
-		RunWith(repo.db)
+		RunWith(r.db)
 
 	if filter.ID > 0 {
 		builder = builder.Where(squirrel.Eq{"id": filter.ID})
@@ -173,7 +175,7 @@ func (repo *sqliteRepo) ListLocations(ctx context.Context, filter LocationFilter
 
 var ErrLocationExists = errors.New("location with Planning Center ID already exists")
 
-func (repo *sqliteRepo) CreateLocation(ctx context.Context, location Location) (Location, error) {
+func (r *sqliteRepo) CreateLocation(ctx context.Context, location Location) (Location, error) {
 	columns := []string{"planning_center_id", "event_id", "name", "auto_fetch"}
 	values := []any{location.PlanningCenterID, location.EventID, location.Name, location.AutoFetch}
 
@@ -194,7 +196,7 @@ func (repo *sqliteRepo) CreateLocation(ctx context.Context, location Location) (
 
 	builder := squirrel.
 		Insert("locations").
-		RunWith(repo.db).
+		RunWith(r.db).
 		Columns(columns...).
 		Values(values...).
 		SuffixExpr(squirrel.Expr("ON CONFLICT(planning_center_id) DO UPDATE SET name = excluded.name"))
@@ -213,7 +215,7 @@ func (repo *sqliteRepo) CreateLocation(ctx context.Context, location Location) (
 	return location, nil
 }
 
-func (repo *sqliteRepo) UpdateLocation(ctx context.Context, location Location) error {
+func (r *sqliteRepo) UpdateLocation(ctx context.Context, location Location) error {
 	setMap := map[string]any{
 		"planning_center_id":        location.PlanningCenterID,
 		"planning_center_parent_id": location.PlanningCenterParentID,
@@ -229,7 +231,7 @@ func (repo *sqliteRepo) UpdateLocation(ctx context.Context, location Location) e
 
 	builder := squirrel.
 		Update("locations").
-		RunWith(repo.db).
+		RunWith(r.db).
 		SetMap(setMap).
 		Where(squirrel.Eq{"id": location.ID})
 	res, err := builder.ExecContext(ctx)
@@ -238,7 +240,7 @@ func (repo *sqliteRepo) UpdateLocation(ctx context.Context, location Location) e
 	}
 	rowsAffected, _ := res.RowsAffected()
 	if rowsAffected == 0 {
-		return sql.ErrNoRows
+		return repo.ErrNotFound
 	}
 	return nil
 }

@@ -9,6 +9,7 @@ import (
 	"kids-checkin/internal/controllers/session"
 	"strconv"
 
+	"kids-checkin/internal/repo"
 	"kids-checkin/internal/repo/location"
 
 	"github.com/gofiber/fiber/v2"
@@ -115,7 +116,7 @@ func (controller *Controller) PatchUpdateLocation(c *fiber.Ctx) error {
 	}
 
 	if err := controller.repo.UpdateLocation(c.Context(), current); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, repo.ErrNotFound) {
 			return fiber.NewError(fiber.StatusNotFound, "location not found")
 		}
 		return err
