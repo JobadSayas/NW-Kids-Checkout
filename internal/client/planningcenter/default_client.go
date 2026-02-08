@@ -136,6 +136,10 @@ func (client *defaultClient) GetCheckoutsForLocation(ctx context.Context, locati
 			break
 		}
 		err := func() error {
+			defer func(start time.Time) {
+				slog.Info("got checkins for location", slog.String("location_id", locationID), slog.Int64("duration_ms", time.Since(start).Milliseconds()))
+			}(time.Now())
+
 			req, err := http.NewRequestWithContext(ctx, http.MethodGet, getURL, nil)
 			if err != nil {
 				return err
