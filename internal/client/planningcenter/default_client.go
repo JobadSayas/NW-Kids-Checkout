@@ -111,10 +111,10 @@ func (client *defaultClient) GetCheckoutsForLocation(ctx context.Context, locati
 	iterations := 0
 
 	getURL, err := url.JoinPath(client.baseURL, "check-ins", "v2", "locations", locationID, "check_ins")
-
 	if err != nil {
 		return nil, err
 	}
+
 	q := url.Values{}
 	q.Add("filter", "checked_out")
 	q.Add("order", "-checked_out_at")
@@ -188,6 +188,9 @@ func (client *defaultClient) GetCheckoutsForLocation(ctx context.Context, locati
 			}
 
 			getURL = decoded.Links.Next
+			if getURL == "" {
+				done = true
+			}
 
 			return nil
 		}()
@@ -352,6 +355,9 @@ func (client *defaultClient) GetEvents(ctx context.Context) ([]Event, error) {
 		}
 
 		getURL = decoded.Links.Next
+		if getURL == "" {
+			break
+		}
 	}
 
 	return events, nil

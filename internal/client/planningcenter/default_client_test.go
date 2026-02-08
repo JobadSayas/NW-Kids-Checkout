@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -63,7 +65,38 @@ func Test_defaultClient_GetCheckoutsForLocation_Real(t *testing.T) {
 }
 
 func Test_defaultClient_GetCheckoutsForLocation_Fake(t *testing.T) {
+	checkedOutAt := time.Now().UTC().Add(-1 * time.Minute).Round(time.Second)
+	var requestCount int64
 
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt64(&requestCount, 1)
+
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprintf(w, `{"links":{"self":"%s","next":""},"data":[{"type":"check_in","id":"123","attributes":{"first_name":"Test","last_name":"User","security_code":"ABC123","checked_out_at":"%s"}}]}`,
+			server.URL+r.URL.Path,
+			checkedOutAt.Format(time.RFC3339),
+		)
+	}))
+	defer server.Close()
+
+	client := &defaultClient{
+		httpClient: server.Client(),
+		baseURL:    server.URL,
+		clientID:   "client",
+		secret:     "secret",
+	}
+
+	checkouts, err := client.GetCheckoutsForLocation(t.Context(), "loc-123", checkedOutAt.Add(-10*time.Minute), 0)
+	require.NoError(t, err)
+	require.Len(t, checkouts, 1)
+	assert.Equal(t, "123", checkouts[0].ID)
+	assert.Equal(t, "Test", checkouts[0].FirstName)
+	assert.Equal(t, "User", checkouts[0].LastName)
+	assert.Equal(t, "ABC123", checkouts[0].SecurityCode)
+	assert.Equal(t, checkedOutAt, checkouts[0].CheckedOutAt)
+	assert.Equal(t, int64(1), atomic.LoadInt64(&requestCount))
 }
 
 func Test_defaultClient_GetLocation_Real(t *testing.T) {
@@ -160,6 +193,36 @@ func Test_defaultClient_GetLocationsForEvent(t *testing.T) {
 			fmt.Printf("%+v\n", got)
 		})
 	}
+}
+
+func Test_defaultClient_GetEvents_EmptyNext(t *testing.T) {
+	var requestCount int64
+
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt64(&requestCount, 1)
+
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprintf(w, `{"links":{"self":"%s","next":""},"data":[{"id":"event-1","type":"event","attributes":{"name":"Weekend Service"}}]}`,
+			server.URL+r.URL.Path,
+		)
+	}))
+	defer server.Close()
+
+	client := &defaultClient{
+		httpClient: server.Client(),
+		baseURL:    server.URL,
+		clientID:   "client",
+		secret:     "secret",
+	}
+
+	events, err := client.GetEvents(t.Context())
+	require.NoError(t, err)
+	require.Len(t, events, 1)
+	assert.Equal(t, "event-1", events[0].ID)
+	assert.Equal(t, "Weekend Service", events[0].Name)
+	assert.Equal(t, int64(1), atomic.LoadInt64(&requestCount))
 }
 
 func Test_getFilteredResults(t *testing.T) {
