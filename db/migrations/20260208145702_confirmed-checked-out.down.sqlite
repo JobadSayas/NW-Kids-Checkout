@@ -1,0 +1,1 @@
+ALTER TABLE checkins DROP COLUMN checked_out_confirmed_at;

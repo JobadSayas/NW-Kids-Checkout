@@ -1,0 +1,1 @@
+ALTER TABLE checkins ADD checked_out_confirmed_at DATETIME DEFAULT NULL;

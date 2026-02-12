@@ -27,7 +27,7 @@ CREATE TABLE checkins
     last_name          TEXT    NOT NULL,
     security_code      TEXT    NOT NULL,
     checked_out_at     DATETIME DEFAULT NULL
-);
+, checked_out_confirmed_at DATETIME DEFAULT NULL);
 CREATE INDEX idx_checked_out_at ON checkins (checked_out_at);
 CREATE TABLE events
 (
@@ -35,4 +35,10 @@ CREATE TABLE events
     name               TEXT NOT NULL UNIQUE,
     planning_center_id TEXT NOT NULL
 );
+CREATE TABLE fiber_storage (
+			k  VARCHAR(64) PRIMARY KEY NOT NULL DEFAULT '',
+			v  BLOB NOT NULL,
+			e  BIGINT NOT NULL DEFAULT '0'
+		);
+CREATE INDEX e ON fiber_storage (e);
 CREATE UNIQUE INDEX idx_location_groups_name ON location_groups (name);
