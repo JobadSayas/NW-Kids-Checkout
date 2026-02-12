@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"kids-checkin/internal/repo"
+
 	"github.com/Masterminds/squirrel"
 )
 
@@ -25,18 +27,20 @@ type Filter struct {
 }
 
 type Checkin struct {
-	ID               int64
-	PlanningCenterID string
-	LocationID       int64
-	FirstName        string
-	LastName         string
-	SecurityCode     string
-	CheckedOutAt     time.Time
+	ID                    int64
+	PlanningCenterID      string
+	LocationID            int64
+	FirstName             string
+	LastName              string
+	SecurityCode          string
+	CheckedOutAt          time.Time
+	CheckedOutConfirmedAt time.Time
 }
 
 type Repo interface {
 	ListCheckins(ctx context.Context, filter Filter) ([]Checkin, error)
 	CreateCheckin(ctx context.Context, checkin Checkin) (Checkin, error)
+	SetCheckedOutConfirmedAt(ctx context.Context, planningCenterID string, confirmed bool) (Checkin, error)
 	RemoveOldCheckins(ctx context.Context, olderThan time.Time) (deletedCount int64, err error)
 }
 
@@ -61,6 +65,7 @@ func (s *sqliteRepo) ListCheckins(ctx context.Context, filter Filter) ([]Checkin
 		"checkins.last_name",
 		"checkins.security_code",
 		"checkins.checked_out_at",
+		"checkins.checked_out_confirmed_at",
 	).From("checkins")
 
 	if filter.LocationName != "" {
@@ -134,6 +139,7 @@ func (s *sqliteRepo) ListCheckins(ctx context.Context, filter Filter) ([]Checkin
 	for rows.Next() {
 		var checkin Checkin
 		var checkedOutAt sql.NullTime
+		var checkedOutConfirmedAt sql.NullTime
 
 		err := rows.Scan(
 			&checkin.ID,
@@ -143,6 +149,7 @@ func (s *sqliteRepo) ListCheckins(ctx context.Context, filter Filter) ([]Checkin
 			&checkin.LastName,
 			&checkin.SecurityCode,
 			&checkedOutAt,
+			&checkedOutConfirmedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scanning checkin: %w", err)
@@ -150,6 +157,10 @@ func (s *sqliteRepo) ListCheckins(ctx context.Context, filter Filter) ([]Checkin
 
 		if checkedOutAt.Valid {
 			checkin.CheckedOutAt = checkedOutAt.Time
+		}
+
+		if checkedOutConfirmedAt.Valid {
+			checkin.CheckedOutConfirmedAt = checkedOutConfirmedAt.Time
 		}
 
 		checkins = append(checkins, checkin)
@@ -165,11 +176,17 @@ func (s *sqliteRepo) CreateCheckin(ctx context.Context, checkin Checkin) (Checki
 		checkedOutAt = &tt
 	}
 
+	var checkedOutConfirmedAt *time.Time
+	if !checkin.CheckedOutConfirmedAt.IsZero() {
+		tt := checkin.CheckedOutConfirmedAt.UTC()
+		checkedOutConfirmedAt = &tt
+	}
+
 	builder := squirrel.Insert("checkins").
 		RunWith(s.db).
-		Columns("planning_center_id", "location_id", "first_name", "last_name", "security_code", "checked_out_at").
-		Values(checkin.PlanningCenterID, checkin.LocationID, checkin.FirstName, checkin.LastName, checkin.SecurityCode, checkedOutAt).
-		SuffixExpr(squirrel.Expr("ON CONFLICT(planning_center_id) DO UPDATE SET checked_out_at = ?", checkedOutAt))
+		Columns("planning_center_id", "location_id", "first_name", "last_name", "security_code", "checked_out_at", "checked_out_confirmed_at").
+		Values(checkin.PlanningCenterID, checkin.LocationID, checkin.FirstName, checkin.LastName, checkin.SecurityCode, checkedOutAt, checkedOutConfirmedAt).
+		SuffixExpr(squirrel.Expr("ON CONFLICT(planning_center_id) DO UPDATE SET checked_out_at = ?, checked_out_confirmed_at = ?", checkedOutAt, checkedOutConfirmedAt))
 
 	res, err := builder.ExecContext(ctx)
 	if err != nil {
@@ -183,6 +200,41 @@ func (s *sqliteRepo) CreateCheckin(ctx context.Context, checkin Checkin) (Checki
 
 	checkin.ID = id
 	return checkin, nil
+}
+
+func (s *sqliteRepo) SetCheckedOutConfirmedAt(ctx context.Context, planningCenterID string, confirmed bool) (Checkin, error) {
+	var checkedOutConfirmedAt *time.Time
+	if confirmed {
+		now := time.Now().UTC()
+		checkedOutConfirmedAt = &now
+	}
+
+	res, err := squirrel.Update("checkins").
+		Set("checked_out_confirmed_at", checkedOutConfirmedAt).
+		Where(squirrel.Eq{"planning_center_id": planningCenterID}).
+		RunWith(s.db).
+		ExecContext(ctx)
+	if err != nil {
+		return Checkin{}, err
+	}
+
+	ra, err := res.RowsAffected()
+	if err != nil {
+		return Checkin{}, err
+	}
+	if ra == 0 {
+		return Checkin{}, repo.ErrNotFound
+	}
+
+	checkins, err := s.ListCheckins(ctx, Filter{PlanningCenterID: planningCenterID, Limit: 1})
+	if err != nil {
+		return Checkin{}, err
+	}
+	if len(checkins) == 0 {
+		return Checkin{}, repo.ErrNotFound
+	}
+
+	return checkins[0], nil
 }
 
 func (s *sqliteRepo) RemoveOldCheckins(ctx context.Context, olderThan time.Time) (int64, error) {

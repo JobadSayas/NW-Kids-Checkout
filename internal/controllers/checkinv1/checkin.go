@@ -1,6 +1,7 @@
 package checkinv1
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -8,8 +9,10 @@ import (
 	"fmt"
 	"kids-checkin/internal/controllers/middleware"
 	"kids-checkin/internal/controllers/session"
+	"kids-checkin/internal/repo"
 	"kids-checkin/internal/web/static"
 	"log/slog"
+	"mime"
 	"net/url"
 	"sort"
 	"strconv"
@@ -51,6 +54,7 @@ func (controller *Controller) RegisterRoutes(app *fiber.App) {
 	checkinGroup.Use(middleware.AuthRequired(controller.sessionStore, ""))
 
 	checkinGroup.Get("/checkouts", controller.Checkouts)
+	checkinGroup.Patch("/:planning_center_id/checked_out_confirmed", controller.PatchCheckedOutConfirmed)
 }
 
 func (controller *Controller) Checkouts(c *fiber.Ctx) error {
@@ -176,6 +180,47 @@ func (controller *Controller) checkoutsWebsocket(c *fiber.Ctx) error {
 	})(c)
 }
 
+func (controller *Controller) PatchCheckedOutConfirmed(c *fiber.Ctx) error {
+	planningCenterID := c.Params("planning_center_id")
+	if planningCenterID == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "planning_center_id is required")
+	}
+
+	contentType := c.Get("Content-Type")
+	if contentType == "" {
+		return fiber.NewError(fiber.StatusUnsupportedMediaType, "unsupported media type")
+	}
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err != nil || mediaType != fiber.MIMEApplicationJSON {
+		return fiber.NewError(fiber.StatusUnsupportedMediaType, "unsupported media type")
+	}
+
+	type confirmedPayload struct {
+		Confirmed *bool `json:"confirmed"`
+	}
+
+	var payload confirmedPayload
+	decoder := json.NewDecoder(bytes.NewReader(c.Body()))
+	if err := decoder.Decode(&payload); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid JSON")
+	}
+
+	if payload.Confirmed == nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid JSON")
+	}
+	confirmed := *payload.Confirmed
+
+	updated, err := controller.checkinRepo.SetCheckedOutConfirmedAt(c.Context(), planningCenterID, confirmed)
+	if err != nil {
+		if errors.Is(err, repo.ErrNotFound) {
+			return fiber.NewError(fiber.StatusNotFound, "checkin not found")
+		}
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+
+	return c.JSON(repoCheckinToOutput(updated))
+}
+
 func buildFilter(c *fiber.Ctx) (checkin.Filter, error) {
 	locationGroupName := c.Query("location_group_name", "")
 	var err error
@@ -264,13 +309,18 @@ func repoCheckinToOutput(checkin checkin.Checkin) Checkin {
 	if !checkin.CheckedOutAt.IsZero() {
 		coa = &checkin.CheckedOutAt
 	}
+	var coc *time.Time
+	if !checkin.CheckedOutConfirmedAt.IsZero() {
+		coc = &checkin.CheckedOutConfirmedAt
+	}
 	return Checkin{
-		PlanningCenterID: checkin.PlanningCenterID,
-		LocationID:       checkin.LocationID,
-		FirstName:        checkin.FirstName,
-		LastName:         checkin.LastName,
-		SecurityCode:     checkin.SecurityCode,
-		CheckedOutAt:     coa,
+		PlanningCenterID:      checkin.PlanningCenterID,
+		LocationID:            checkin.LocationID,
+		FirstName:             checkin.FirstName,
+		LastName:              checkin.LastName,
+		SecurityCode:          checkin.SecurityCode,
+		CheckedOutAt:          coa,
+		CheckedOutConfirmedAt: coc,
 	}
 }
 
@@ -298,12 +348,13 @@ func sortCheckins(checkins []checkin.Checkin) []checkin.Checkin {
 }
 
 type Checkin struct {
-	PlanningCenterID string     `json:"planning_center_id"`
-	LocationID       int64      `json:"location_id"`
-	FirstName        string     `json:"first_name"`
-	LastName         string     `json:"last_name"`
-	SecurityCode     string     `json:"security_code"`
-	CheckedOutAt     *time.Time `json:"checked_out_at"`
+	PlanningCenterID      string     `json:"planning_center_id"`
+	LocationID            int64      `json:"location_id"`
+	FirstName             string     `json:"first_name"`
+	LastName              string     `json:"last_name"`
+	SecurityCode          string     `json:"security_code"`
+	CheckedOutAt          *time.Time `json:"checked_out_at"`
+	CheckedOutConfirmedAt *time.Time `json:"checked_out_confirmed_at"`
 }
 
 type CheckinFilter struct {

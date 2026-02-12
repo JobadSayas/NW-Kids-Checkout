@@ -4,6 +4,58 @@ const API_URL = '';
 // Store current data
 let childrenData = [];
 
+const API_CALL_BLOCKS = {
+    fetchChildrenData: false,
+    confirmCheckedOut: false
+};
+
+const CONFIRMED_ICON_SRC = '/static/img/confirmed-checkbox.svg';
+
+function updateConfirmedIcon(checkbox) {
+    const icon = checkbox.closest('label')?.querySelector('[data-confirmed-icon]');
+    if (!icon) return;
+
+    const label = checkbox.closest('[data-confirmed-label]');
+    if (label) {
+        label.dataset.confirmedState = checkbox.checked ? 'confirmed' : 'unconfirmed';
+    }
+}
+
+function isApiCallBlocked(callName) {
+    return Boolean(API_CALL_BLOCKS[callName]);
+}
+
+async function confirmCheckedOut(planningCenterId, checkbox, confirmed) {
+    if (!planningCenterId) {
+        console.error('Missing planning_center_id for confirmation');
+        return;
+    }
+
+    if (isApiCallBlocked('confirmCheckedOut')) return;
+
+    API_CALL_BLOCKS.confirmCheckedOut = true;
+    try {
+        const response = await fetch(
+            encodeURI(`${API_URL}/v1/checkins/${planningCenterId}/checked_out_confirmed`),
+            {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ confirmed })
+            }
+        );
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        checkbox.checked = Boolean(confirmed);
+    } catch (error) {
+        console.error('Error confirming checkout:', error);
+    } finally {
+        API_CALL_BLOCKS.confirmCheckedOut = false;
+    }
+}
+
 // Function to calculate minutes ago
 function calculateMinutesAgo(checkedOutAt) {
     if (!checkedOutAt) return '0 min ago';
@@ -37,6 +89,8 @@ function updateTimes() {
 
 // Function to fetch data from API
 async function fetchChildrenData() {
+    if (isApiCallBlocked('fetchChildrenData')) return;
+
     try {
         let params = new URLSearchParams(window.location.search)
         let outParams = new URLSearchParams();
@@ -90,9 +144,22 @@ function updateUI() {
         document.getElementById('current-child-name').textContent =
             `${currentChild.first_name} ${currentChild.last_name}`;
         document.getElementById('current-child-code').textContent = currentChild.security_code;
+        const currentConfirmed = Boolean(currentChild.checked_out_confirmed_at);
+        const currentConfirmedCheckbox = document.getElementById('current-child-confirmed');
+        currentConfirmedCheckbox.checked = currentConfirmed;
+        updateConfirmedIcon(currentConfirmedCheckbox);
+        if (currentChild.planning_center_id) {
+            currentConfirmedCheckbox.dataset.planningCenterId = currentChild.planning_center_id;
+        } else {
+            delete currentConfirmedCheckbox.dataset.planningCenterId;
+        }
     } else {
         document.getElementById('current-child-name').textContent = 'No children called yet';
         document.getElementById('current-child-code').textContent = '----';
+        const currentConfirmedCheckbox = document.getElementById('current-child-confirmed');
+        currentConfirmedCheckbox.checked = false;
+        updateConfirmedIcon(currentConfirmedCheckbox);
+        delete currentConfirmedCheckbox.dataset.planningCenterId;
     }
 
     // Update previously called list (next 7 children)
@@ -110,7 +177,7 @@ function updateUI() {
 
     previouslyCalledChildren.forEach(child => {
         const card = document.createElement('div');
-        card.className = 'bg-white rounded-lg py-3 px-4 shadow-[0_0_10px_rgba(0,0,0,0.25)]';
+        card.className = 'bg-white rounded-lg py-2.5 px-4 shadow-[0_0_10px_rgba(0,0,0,0.25)] flex flex-col justify-center';
         card.innerHTML = `
             <div class="font-bold text-gray-800 text-2xl mb-0">
                 ${child.first_name} ${child.last_name}
@@ -119,8 +186,17 @@ function updateUI() {
                 <div class="text-black text-xl">
                     ${child.security_code}
                 </div>
-                <div class="text-white bg-gray-400 px-1.5 py-0 rounded-md text-base child-time">
-                    ${calculateMinutesAgo(child.checked_out_at)}
+                <div class="flex items-center gap-3">
+                    <div class="text-white bg-gray-400 px-1.5 py-0 rounded-md text-base child-time">
+                        ${calculateMinutesAgo(child.checked_out_at)}
+                    </div>
+                    <label class="flex items-center text-xs text-gray-600 cursor-pointer leading-none" data-confirmed-label data-confirmed-state="${child.checked_out_confirmed_at ? 'confirmed' : 'unconfirmed'}">
+                        <input type="checkbox"
+                            class="sr-only child-confirmed-checkbox"
+                            data-planning-center-id="${child.planning_center_id || ''}"
+                            ${child.checked_out_confirmed_at ? 'checked' : ''}>
+                        <img src="${CONFIRMED_ICON_SRC}" alt="" class="h-8 w-8 block" data-confirmed-icon>
+                    </label>
                 </div>
             </div>
         `;
@@ -147,6 +223,15 @@ function updateAllTimes() {
 
 // Initialize and start periodic updates
 document.addEventListener('DOMContentLoaded', function() {
+    document.addEventListener('change', function(event) {
+        const checkbox = event.target;
+        if (!checkbox.classList.contains('child-confirmed-checkbox')) return;
+
+        const planningCenterId = checkbox.dataset.planningCenterId;
+        updateConfirmedIcon(checkbox);
+        confirmCheckedOut(planningCenterId, checkbox, checkbox.checked);
+    });
+
     // Initial fetch
     fetchChildrenData();
 

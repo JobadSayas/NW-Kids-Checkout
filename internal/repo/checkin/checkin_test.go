@@ -64,34 +64,40 @@ func Test_sqliteRepo_ListCheckins(t *testing.T) {
 
 	time1 := time.Date(2022, 1, 1, 12, 18, 32, 0, time.UTC)
 	time2 := time1.Add(time.Hour * 24)
+	confirmed1 := time1.Add(30 * time.Minute)
+	confirmed2 := time1.Add(45 * time.Minute)
+	confirmed3 := time2.Add(15 * time.Minute)
 
 	checkin1, err := s.CreateCheckin(t.Context(), Checkin{
-		PlanningCenterID: "plc_1234",
-		LocationID:       location1ID,
-		FirstName:        "sam",
-		LastName:         "alpha",
-		SecurityCode:     "ABC123",
-		CheckedOutAt:     time1,
+		PlanningCenterID:      "plc_1234",
+		LocationID:            location1ID,
+		FirstName:             "sam",
+		LastName:              "alpha",
+		SecurityCode:          "ABC123",
+		CheckedOutAt:          time1,
+		CheckedOutConfirmedAt: confirmed1,
 	})
 	require.NoError(t, err)
 
 	checkin2, err := s.CreateCheckin(t.Context(), Checkin{
-		PlanningCenterID: "plc_1235",
-		LocationID:       location2ID,
-		FirstName:        "sam",
-		LastName:         "bravo",
-		SecurityCode:     "ABC124",
-		CheckedOutAt:     time1,
+		PlanningCenterID:      "plc_1235",
+		LocationID:            location2ID,
+		FirstName:             "sam",
+		LastName:              "bravo",
+		SecurityCode:          "ABC124",
+		CheckedOutAt:          time1,
+		CheckedOutConfirmedAt: confirmed2,
 	})
 	require.NoError(t, err)
 
 	checkin3, err := s.CreateCheckin(t.Context(), Checkin{
-		PlanningCenterID: "plc_1236",
-		LocationID:       location3ID,
-		FirstName:        "alex",
-		LastName:         "alpha",
-		SecurityCode:     "ABC125",
-		CheckedOutAt:     time2,
+		PlanningCenterID:      "plc_1236",
+		LocationID:            location3ID,
+		FirstName:             "alex",
+		LastName:              "alpha",
+		SecurityCode:          "ABC125",
+		CheckedOutAt:          time2,
+		CheckedOutConfirmedAt: confirmed3,
 	})
 	require.NoError(t, err)
 
@@ -111,6 +117,7 @@ func Test_sqliteRepo_ListCheckins(t *testing.T) {
 		assert.Equal(t, "bravo", c[0].LastName)
 		assert.Equal(t, "ABC124", c[0].SecurityCode)
 		assert.Equal(t, time1, c[0].CheckedOutAt)
+		assert.Equal(t, confirmed2, c[0].CheckedOutConfirmedAt)
 	})
 
 	t.Run("filter by Planning Center ID", func(t *testing.T) {
@@ -185,6 +192,7 @@ func Test_sqliteRepo_ListCheckins(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, c, 1)
 		assert.Equal(t, checkin2.ID, c[0].ID)
+		assert.Equal(t, confirmed2, c[0].CheckedOutConfirmedAt)
 	})
 
 	_ = checkin1
@@ -205,23 +213,25 @@ func Test_sqliteRepo_CreateCheckin(t *testing.T) {
 		{
 			name: "create checkin",
 			arg: Checkin{
-				PlanningCenterID: "plc_1234",
-				LocationID:       1,
-				FirstName:        "somefirstname",
-				LastName:         "somelastname",
-				SecurityCode:     "ABC123",
-				CheckedOutAt:     time.Date(2022, 1, 1, 12, 0, 0, 0, time.UTC),
+				PlanningCenterID:      "plc_1234",
+				LocationID:            1,
+				FirstName:             "somefirstname",
+				LastName:              "somelastname",
+				SecurityCode:          "ABC123",
+				CheckedOutAt:          time.Date(2022, 1, 1, 12, 0, 0, 0, time.UTC),
+				CheckedOutConfirmedAt: time.Date(2022, 1, 1, 12, 30, 0, 0, time.UTC),
 			},
 		},
 		{
 			name: "create checkin 2",
 			arg: Checkin{
-				PlanningCenterID: "plc_1235",
-				LocationID:       1,
-				FirstName:        "somefirstname",
-				LastName:         "somelastname",
-				SecurityCode:     "ABC123",
-				CheckedOutAt:     time.Time{},
+				PlanningCenterID:      "plc_1235",
+				LocationID:            1,
+				FirstName:             "somefirstname",
+				LastName:              "somelastname",
+				SecurityCode:          "ABC123",
+				CheckedOutAt:          time.Time{},
+				CheckedOutConfirmedAt: time.Time{},
 			},
 		},
 	}
@@ -240,6 +250,7 @@ func Test_sqliteRepo_CreateCheckin(t *testing.T) {
 			assert.Equal(t, tt.arg.LastName, actual.LastName)
 			assert.Equal(t, tt.arg.SecurityCode, actual.SecurityCode)
 			assert.Equal(t, tt.arg.CheckedOutAt, actual.CheckedOutAt)
+			assert.Equal(t, tt.arg.CheckedOutConfirmedAt, actual.CheckedOutConfirmedAt)
 
 			checkins, err := s.ListCheckins(t.Context(), Filter{
 				PlanningCenterID: tt.arg.PlanningCenterID,
@@ -254,6 +265,7 @@ func Test_sqliteRepo_CreateCheckin(t *testing.T) {
 			assert.Equal(t, actual.LastName, checkins[0].LastName)
 			assert.Equal(t, actual.SecurityCode, checkins[0].SecurityCode)
 			assert.Equal(t, actual.CheckedOutAt, checkins[0].CheckedOutAt)
+			assert.Equal(t, actual.CheckedOutConfirmedAt, checkins[0].CheckedOutConfirmedAt)
 		})
 	}
 }
@@ -265,24 +277,28 @@ func Test_sqliteRepo_CreateCheckin_ConflictUpdatesCheckedOutAt(t *testing.T) {
 
 	start := time.Date(2022, 1, 1, 12, 0, 0, 0, time.UTC)
 	updated := start.Add(2 * time.Hour)
+	startConfirmed := start.Add(10 * time.Minute)
+	updatedConfirmed := updated.Add(10 * time.Minute)
 
 	first, err := s.CreateCheckin(t.Context(), Checkin{
-		PlanningCenterID: "plc_conflict",
-		LocationID:       1,
-		FirstName:        "first",
-		LastName:         "last",
-		SecurityCode:     "ABC123",
-		CheckedOutAt:     start,
+		PlanningCenterID:      "plc_conflict",
+		LocationID:            1,
+		FirstName:             "first",
+		LastName:              "last",
+		SecurityCode:          "ABC123",
+		CheckedOutAt:          start,
+		CheckedOutConfirmedAt: startConfirmed,
 	})
 	require.NoError(t, err)
 
 	_, err = s.CreateCheckin(t.Context(), Checkin{
-		PlanningCenterID: "plc_conflict",
-		LocationID:       1,
-		FirstName:        "first",
-		LastName:         "last",
-		SecurityCode:     "ABC123",
-		CheckedOutAt:     updated,
+		PlanningCenterID:      "plc_conflict",
+		LocationID:            1,
+		FirstName:             "first",
+		LastName:              "last",
+		SecurityCode:          "ABC123",
+		CheckedOutAt:          updated,
+		CheckedOutConfirmedAt: updatedConfirmed,
 	})
 	require.NoError(t, err)
 
@@ -291,6 +307,7 @@ func Test_sqliteRepo_CreateCheckin_ConflictUpdatesCheckedOutAt(t *testing.T) {
 	require.Len(t, checkins, 1)
 	assert.Equal(t, first.ID, checkins[0].ID)
 	assert.Equal(t, updated, checkins[0].CheckedOutAt)
+	assert.Equal(t, updatedConfirmed, checkins[0].CheckedOutConfirmedAt)
 }
 
 func Test_sqliteRepo_RemoveOldCheckins(t *testing.T) {
@@ -382,4 +399,31 @@ func Test_sqliteRepo_RemoveOldCheckins(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test_sqliteRepo_SetCheckedOutConfirmedAt(t *testing.T) {
+	s := NewRepo(testDB)
+	_, err := squirrel.Delete("checkins").RunWith(testDB).ExecContext(t.Context())
+	require.NoError(t, err)
+
+	created, err := s.CreateCheckin(t.Context(), Checkin{
+		PlanningCenterID: "plc_confirmed",
+		LocationID:       1,
+		FirstName:        "first",
+		LastName:         "last",
+		SecurityCode:     "ABC123",
+		CheckedOutAt:     time.Date(2022, 1, 1, 12, 0, 0, 0, time.UTC),
+	})
+	require.NoError(t, err)
+
+	before := time.Now().UTC()
+	updated, err := s.SetCheckedOutConfirmedAt(t.Context(), created.PlanningCenterID, true)
+	require.NoError(t, err)
+	assert.Equal(t, created.ID, updated.ID)
+	assert.WithinDuration(t, time.Now().UTC(), updated.CheckedOutConfirmedAt, 2*time.Second)
+	assert.True(t, updated.CheckedOutConfirmedAt.After(before) || updated.CheckedOutConfirmedAt.Equal(before))
+
+	updated, err = s.SetCheckedOutConfirmedAt(t.Context(), created.PlanningCenterID, false)
+	require.NoError(t, err)
+	assert.True(t, updated.CheckedOutConfirmedAt.IsZero())
 }

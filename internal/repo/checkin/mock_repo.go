@@ -12,6 +12,9 @@ type MockRepo struct {
 	CreateCheckinFunc          func(ctx context.Context, checkin Checkin) (Checkin, error)
 	CreateCheckinFuncCallCount int
 
+	SetCheckedOutConfirmedAtFunc          func(ctx context.Context, planningCenterID string, confirmed bool) (Checkin, error)
+	SetCheckedOutConfirmedAtFuncCallCount int
+
 	RemoveOldCheckinsFunc          func(ctx context.Context, olderThan time.Time) (deletedCount int64, err error)
 	RemoveOldCheckinsFuncCallCount int
 }
@@ -32,6 +35,15 @@ func (repo *MockRepo) CreateCheckin(ctx context.Context, checkin Checkin) (Check
 	}
 
 	panic("MockRepo.CreateCheckin not implemented")
+}
+
+func (repo *MockRepo) SetCheckedOutConfirmedAt(ctx context.Context, planningCenterID string, confirmed bool) (Checkin, error) {
+	repo.SetCheckedOutConfirmedAtFuncCallCount++
+	if repo.SetCheckedOutConfirmedAtFunc != nil {
+		return repo.SetCheckedOutConfirmedAtFunc(ctx, planningCenterID, confirmed)
+	}
+
+	panic("MockRepo.SetCheckedOutConfirmedAt not implemented")
 }
 
 func (repo *MockRepo) RemoveOldCheckins(ctx context.Context, olderThan time.Time) (deletedCount int64, err error) {

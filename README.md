@@ -107,6 +107,12 @@ The project uses SQLite for its database. Database migrations are managed with t
 - **Running migrations:** `make db-migrate`
 - **Creating a new migration:** `make db-new-migration NAME=<migration_name>`
 
+### Production Migrations
+Connect to a shell and run:
+```shell
+migrate -source file:///app/db/migrations -database "sqlite3:///data/kids-checkin.db" up
+```
+
 ## API Endpoints
 
 The API is currently versioned under `/v1`.
