@@ -42,3 +42,11 @@ CREATE TABLE fiber_storage (
 		);
 CREATE INDEX e ON fiber_storage (e);
 CREATE UNIQUE INDEX idx_location_groups_name ON location_groups (name);
+CREATE TABLE manual_checkins
+(
+    id             INTEGER PRIMARY KEY,
+    first_name     TEXT NOT NULL,
+    last_name      TEXT NOT NULL,
+    checked_out_at DATETIME
+);
+CREATE INDEX idx_manual_checked_out_at ON manual_checkins (checked_out_at);
