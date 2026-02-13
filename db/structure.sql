@@ -44,6 +44,7 @@ CREATE UNIQUE INDEX idx_location_groups_name ON location_groups (name);
 CREATE TABLE manual_checkins
 (
     id                       INTEGER PRIMARY KEY,
+    public_id                TEXT,
     first_name               TEXT NOT NULL,
     last_name                TEXT NOT NULL,
     checked_out_at           DATETIME,
