@@ -1,0 +1,2 @@
+ALTER TABLE manual_checkins
+ADD COLUMN checked_out_confirmed_at DATETIME DEFAULT NULL;
