@@ -373,7 +373,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 toggleManualCheckinModal(false);
                 fetchChildrenData();
             } catch (error) {
-                setManualCheckinError(error.message || 'Unable to save manual check-in.');
+                setManualCheckinError(error.message || 'Unable to save manual check-out.');
             } finally {
                 if (manualSubmitButton) {
                     manualSubmitButton.disabled = false;
