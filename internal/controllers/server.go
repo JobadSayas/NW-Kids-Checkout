@@ -15,6 +15,7 @@ import (
 	"kids-checkin/internal/controllers/eventv1"
 	"kids-checkin/internal/controllers/locationgroupv1"
 	"kids-checkin/internal/controllers/locationv1"
+	"kids-checkin/internal/controllers/manualcheckinv1"
 	"kids-checkin/internal/db"
 	"kids-checkin/internal/web/static"
 
@@ -152,6 +153,9 @@ func registerRoutes(app *fiber.App, db *sql.DB, sessionStore *session.Store) {
 
 	checkinController := checkinv1.NewController(db, sessionStore)
 	checkinController.RegisterRoutes(app)
+
+	manualCheckinController := manualcheckinv1.NewController(db, sessionStore)
+	manualCheckinController.RegisterRoutes(app)
 
 	locationV1Controller := locationv1.NewController(db, sessionStore)
 	locationV1Controller.RegisterRoutes(app)

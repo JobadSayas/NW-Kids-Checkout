@@ -11,6 +11,20 @@ const API_CALL_BLOCKS = {
 
 const CONFIRMED_ICON_SRC = '/static/img/confirmed-checkbox.svg';
 
+function normalizeCheckoutsResponse(data) {
+    if (Array.isArray(data)) return data;
+
+    const normalizeList = (value) => {
+        if (Array.isArray(value)) return value;
+        if (Array.isArray(value?.checkins)) return value.checkins;
+        return [];
+    };
+
+    const checkins = normalizeList(data?.checkins);
+    const manualCheckins = normalizeList(data?.manual_checkins);
+    return [...checkins, ...manualCheckins];
+}
+
 function updateConfirmedIcon(checkbox) {
     const icon = checkbox.closest('label')?.querySelector('[data-confirmed-icon]');
     if (!icon) return;
@@ -25,10 +39,24 @@ function isApiCallBlocked(callName) {
     return Boolean(API_CALL_BLOCKS[callName]);
 }
 
-async function confirmCheckedOut(planningCenterId, checkbox, confirmed) {
-    if (!planningCenterId) {
-        console.error('Missing planning_center_id for confirmation');
-        return;
+async function confirmCheckedOut(source, planningCenterId, publicId, checkbox, confirmed) {
+    let endpoint = '';
+    if (source === 'manual') {
+        if (!publicId) {
+            console.error('Missing public_id for manual confirmation');
+            return;
+        }
+        endpoint = `${API_URL}/v1/checkins/manual/${publicId}/checked_out_confirmed`;
+    } else {
+        if (source && source !== 'planning_center') {
+            console.warn(`Skipping confirmation for source: ${source}`);
+            return;
+        }
+        if (!planningCenterId) {
+            console.error('Missing planning_center_id for confirmation');
+            return;
+        }
+        endpoint = `${API_URL}/v1/checkins/${planningCenterId}/checked_out_confirmed`;
     }
 
     if (isApiCallBlocked('confirmCheckedOut')) return;
@@ -36,7 +64,7 @@ async function confirmCheckedOut(planningCenterId, checkbox, confirmed) {
     API_CALL_BLOCKS.confirmCheckedOut = true;
     try {
         const response = await fetch(
-            encodeURI(`${API_URL}/v1/checkins/${planningCenterId}/checked_out_confirmed`),
+            encodeURI(endpoint),
             {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
@@ -117,9 +145,10 @@ async function fetchChildrenData() {
         }
 
         const data = await response.json();
+        const combined = normalizeCheckoutsResponse(data);
 
         // Sort by checked_out_at (most recent first)
-        const sortedData = data
+        const sortedData = combined
             .filter(child => child.checked_out_at) // Only include children who have been called
             .sort((a, b) => new Date(b.checked_out_at) - new Date(a.checked_out_at));
 
@@ -143,7 +172,9 @@ function updateUI() {
         const currentChild = childrenData[0];
         document.getElementById('current-child-name').textContent =
             `${currentChild.first_name} ${currentChild.last_name}`;
-        document.getElementById('current-child-code').textContent = currentChild.security_code;
+        document.getElementById('current-child-code').textContent = currentChild.source === 'manual'
+            ? '---'
+            : (currentChild.security_code || '----');
         const currentConfirmed = Boolean(currentChild.checked_out_confirmed_at);
         const currentConfirmedCheckbox = document.getElementById('current-child-confirmed');
         currentConfirmedCheckbox.checked = currentConfirmed;
@@ -153,6 +184,16 @@ function updateUI() {
         } else {
             delete currentConfirmedCheckbox.dataset.planningCenterId;
         }
+        if (currentChild.public_id) {
+            currentConfirmedCheckbox.dataset.publicId = currentChild.public_id;
+        } else {
+            delete currentConfirmedCheckbox.dataset.publicId;
+        }
+        if (currentChild.source) {
+            currentConfirmedCheckbox.dataset.source = currentChild.source;
+        } else {
+            delete currentConfirmedCheckbox.dataset.source;
+        }
     } else {
         document.getElementById('current-child-name').textContent = 'No children called yet';
         document.getElementById('current-child-code').textContent = '----';
@@ -160,6 +201,8 @@ function updateUI() {
         currentConfirmedCheckbox.checked = false;
         updateConfirmedIcon(currentConfirmedCheckbox);
         delete currentConfirmedCheckbox.dataset.planningCenterId;
+        delete currentConfirmedCheckbox.dataset.publicId;
+        delete currentConfirmedCheckbox.dataset.source;
     }
 
     // Update previously called list (next 7 children)
@@ -184,7 +227,7 @@ function updateUI() {
             </div>
             <div class="flex justify-between items-center">
                 <div class="text-black text-xl">
-                    ${child.security_code}
+                    ${child.source === 'manual' ? '---' : (child.security_code || '----')}
                 </div>
                 <div class="flex items-center gap-3">
                     <div class="text-white bg-gray-400 px-1.5 py-0 rounded-md text-base child-time">
@@ -194,6 +237,8 @@ function updateUI() {
                         <input type="checkbox"
                             class="sr-only child-confirmed-checkbox"
                             data-planning-center-id="${child.planning_center_id || ''}"
+                            data-public-id="${child.public_id || ''}"
+                            data-source="${child.source || ''}"
                             ${child.checked_out_confirmed_at ? 'checked' : ''}>
                         <img src="${CONFIRMED_ICON_SRC}" alt="" class="h-8 w-8 block" data-confirmed-icon>
                     </label>
@@ -228,8 +273,10 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!checkbox.classList.contains('child-confirmed-checkbox')) return;
 
         const planningCenterId = checkbox.dataset.planningCenterId;
+        const publicId = checkbox.dataset.publicId;
+        const source = checkbox.dataset.source;
         updateConfirmedIcon(checkbox);
-        confirmCheckedOut(planningCenterId, checkbox, checkbox.checked);
+        confirmCheckedOut(source, planningCenterId, publicId, checkbox, checkbox.checked);
     });
 
     // Initial fetch

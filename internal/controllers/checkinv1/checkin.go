@@ -20,6 +20,7 @@ import (
 
 	"kids-checkin/internal/repo/checkin"
 	"kids-checkin/internal/repo/location"
+	"kids-checkin/internal/repo/manualcheckin"
 
 	"github.com/gofiber/contrib/websocket"
 	"github.com/gofiber/fiber/v2"
@@ -29,6 +30,7 @@ const defaultCheckedOutAfterDelta = -12 * time.Hour
 
 type Controller struct {
 	checkinRepo  checkin.Repo
+	manualRepo   manualcheckin.Repo
 	locationRepo location.Repo
 	sessionStore session.Storer
 	wsClients    map[*websocket.Conn]*wsClient
@@ -42,6 +44,7 @@ type wsClient struct {
 func NewController(db *sql.DB, sessionStore session.Storer) *Controller {
 	return &Controller{
 		checkinRepo:  checkin.NewRepo(db),
+		manualRepo:   manualcheckin.NewRepo(db),
 		locationRepo: location.NewRepo(db),
 		sessionStore: sessionStore,
 		wsClients:    make(map[*websocket.Conn]*wsClient),
@@ -55,6 +58,7 @@ func (controller *Controller) RegisterRoutes(app *fiber.App) {
 
 	checkinGroup.Get("/checkouts", controller.Checkouts)
 	checkinGroup.Patch("/:planning_center_id/checked_out_confirmed", controller.PatchCheckedOutConfirmed)
+	checkinGroup.Patch("/manual/:public_id/checked_out_confirmed", controller.PatchManualCheckedOutConfirmed)
 }
 
 func (controller *Controller) Checkouts(c *fiber.Ctx) error {
@@ -98,20 +102,34 @@ func (controller *Controller) checkoutsWeb(c *fiber.Ctx) error {
 	}
 
 	filter.Recent = true
+	manualFilter := manualFilterFromCheckinFilter(filter)
+	if manualFilter.CheckedOutAtAfter.IsZero() {
+		manualFilter.CheckedOutAtAfter = time.Now().Add(defaultCheckedOutAfterDelta)
+	}
+	manualFilter.Recent = true
 
 	checkins, err := controller.checkinRepo.ListCheckins(c.Context(), filter)
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 
+	manualCheckins, err := controller.manualRepo.ListManualCheckins(c.Context(), manualFilter)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+
 	checkins = sortCheckins(checkins)
+	manualCheckins = sortManualCheckins(manualCheckins)
 
 	_, err = controller.locationRepo.ListLocations(c.Context(), location.LocationFilter{})
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 
-	return c.JSON(repoCheckinSliceToOutput(checkins))
+	return c.JSON(CheckoutsResponse{
+		Checkins:       repoCheckinSliceToOutput(checkins),
+		ManualCheckins: repoManualCheckinSliceToOutput(manualCheckins),
+	})
 }
 
 func (controller *Controller) checkoutsWebsocket(c *fiber.Ctx) error {
@@ -161,8 +179,21 @@ func (controller *Controller) checkoutsWebsocket(c *fiber.Ctx) error {
 				continue
 			}
 
+			manualCheckins, err := controller.manualRepo.ListManualCheckins(context.Background(), manualcheckin.Filter{
+				CheckedOutAtAfter: time.Now().Add(controller.wsClients[webscocketConn].checkedOutAfterDelta),
+				Recent:            true,
+			})
+			if err != nil {
+				slog.WarnContext(c.Context(), "cannot list manual checkins", slog.String("error", err.Error()))
+				continue
+			}
+
 			checkins = sortCheckins(checkins)
-			msg, err = json.Marshal(repoCheckinSliceToOutput(checkins))
+			manualCheckins = sortManualCheckins(manualCheckins)
+			msg, err = json.Marshal(CheckoutsResponse{
+				Checkins:       repoCheckinSliceToOutput(checkins),
+				ManualCheckins: repoManualCheckinSliceToOutput(manualCheckins),
+			})
 			if err != nil {
 				slog.WarnContext(c.Context(), "cannot marshal checkins", slog.String("error", err.Error()))
 				continue
@@ -219,6 +250,58 @@ func (controller *Controller) PatchCheckedOutConfirmed(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(repoCheckinToOutput(updated))
+}
+
+func (controller *Controller) PatchManualCheckedOutConfirmed(c *fiber.Ctx) error {
+	publicID := c.Params("public_id")
+	if publicID == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "public_id is required")
+	}
+
+	contentType := c.Get("Content-Type")
+	if contentType == "" {
+		return fiber.NewError(fiber.StatusUnsupportedMediaType, "unsupported media type")
+	}
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err != nil || mediaType != fiber.MIMEApplicationJSON {
+		return fiber.NewError(fiber.StatusUnsupportedMediaType, "unsupported media type")
+	}
+
+	type confirmedPayload struct {
+		Confirmed *bool `json:"confirmed"`
+	}
+
+	var payload confirmedPayload
+	decoder := json.NewDecoder(bytes.NewReader(c.Body()))
+	if err := decoder.Decode(&payload); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid JSON")
+	}
+
+	if payload.Confirmed == nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid JSON")
+	}
+	confirmed := *payload.Confirmed
+
+	manualCheckins, err := controller.manualRepo.ListManualCheckins(c.Context(), manualcheckin.Filter{
+		PublicID: publicID,
+		Limit:    1,
+	})
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+	if len(manualCheckins) == 0 {
+		return fiber.NewError(fiber.StatusNotFound, "manual checkin not found")
+	}
+
+	updated, err := controller.manualRepo.SetManualCheckedOutConfirmedAt(c.Context(), manualCheckins[0].ID, confirmed)
+	if err != nil {
+		if errors.Is(err, repo.ErrNotFound) {
+			return fiber.NewError(fiber.StatusNotFound, "manual checkin not found")
+		}
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+
+	return c.JSON(repoManualCheckinToOutput(updated))
 }
 
 func buildFilter(c *fiber.Ctx) (checkin.Filter, error) {
@@ -321,6 +404,7 @@ func repoCheckinToOutput(checkin checkin.Checkin) Checkin {
 		SecurityCode:          checkin.SecurityCode,
 		CheckedOutAt:          coa,
 		CheckedOutConfirmedAt: coc,
+		Source:                "planning_center",
 	}
 }
 
@@ -328,6 +412,33 @@ func repoCheckinSliceToOutput(checkins []checkin.Checkin) []Checkin {
 	output := make([]Checkin, len(checkins))
 	for i := range checkins {
 		output[i] = repoCheckinToOutput(checkins[i])
+	}
+	return output
+}
+
+func repoManualCheckinToOutput(manualCheckin manualcheckin.ManualCheckin) Checkin {
+	var coa *time.Time
+	if !manualCheckin.CheckedOutAt.IsZero() {
+		coa = &manualCheckin.CheckedOutAt
+	}
+	var coc *time.Time
+	if !manualCheckin.CheckedOutConfirmedAt.IsZero() {
+		coc = &manualCheckin.CheckedOutConfirmedAt
+	}
+	return Checkin{
+		PublicID:              manualCheckin.PublicID,
+		FirstName:             manualCheckin.FirstName,
+		LastName:              manualCheckin.LastName,
+		CheckedOutAt:          coa,
+		CheckedOutConfirmedAt: coc,
+		Source:                "manual",
+	}
+}
+
+func repoManualCheckinSliceToOutput(checkins []manualcheckin.ManualCheckin) []Checkin {
+	output := make([]Checkin, len(checkins))
+	for i := range checkins {
+		output[i] = repoManualCheckinToOutput(checkins[i])
 	}
 	return output
 }
@@ -347,14 +458,46 @@ func sortCheckins(checkins []checkin.Checkin) []checkin.Checkin {
 	return checkins
 }
 
+func sortManualCheckins(checkins []manualcheckin.ManualCheckin) []manualcheckin.ManualCheckin {
+	sort.Slice(checkins, func(i, j int) bool {
+		if !checkins[i].CheckedOutAt.Equal(checkins[j].CheckedOutAt) {
+			return checkins[i].CheckedOutAt.After(checkins[j].CheckedOutAt)
+		}
+
+		if checkins[i].LastName != checkins[j].LastName {
+			return checkins[i].LastName < checkins[j].LastName
+		}
+
+		return checkins[i].FirstName < checkins[j].FirstName
+	})
+	return checkins
+}
+
+func manualFilterFromCheckinFilter(filter checkin.Filter) manualcheckin.Filter {
+	return manualcheckin.Filter{
+		FirstName:          filter.FirstName,
+		LastName:           filter.LastName,
+		CheckedOutAtBefore: filter.CheckedOutAtBefore,
+		CheckedOutAtAfter:  filter.CheckedOutAtAfter,
+		Limit:              filter.Limit,
+	}
+}
+
 type Checkin struct {
 	PlanningCenterID      string     `json:"planning_center_id"`
 	LocationID            int64      `json:"location_id"`
+	PublicID              string     `json:"public_id"`
 	FirstName             string     `json:"first_name"`
 	LastName              string     `json:"last_name"`
 	SecurityCode          string     `json:"security_code"`
 	CheckedOutAt          *time.Time `json:"checked_out_at"`
 	CheckedOutConfirmedAt *time.Time `json:"checked_out_confirmed_at"`
+	Source                string     `json:"source"`
+}
+
+type CheckoutsResponse struct {
+	Checkins       []Checkin `json:"checkins"`
+	ManualCheckins []Checkin `json:"manual_checkins"`
 }
 
 type CheckinFilter struct {
