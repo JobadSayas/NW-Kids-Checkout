@@ -93,7 +93,13 @@
     <!-- Right Panel - Previously Called (Desktop: 4/12 with internal scroll, Mobile: full width) -->
     <div class="lg:w-4/12 lg:h-full min-h-0 border-t border-gray-300 lg:border-t-0 flex-1">
         <div class="h-full min-h-0 flex flex-col lg:px-0 lg:px-0 py-4 lg:pt-4 lg:pb-0">
-            <h2 class="text-xl font-bold text-gray-800 mb-4 px-4">Previously Called</h2>
+            <div class="flex items-center justify-between px-4 mb-3">
+                <h2 class="text-xl font-bold text-gray-800">Previously Called</h2>
+                <button id="open-manual-checkin"
+                        class="inline-flex items-center rounded-md bg-gray-800 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 cursor-pointer">
+                    Manual Check-Out
+                </button>
+            </div>
 
             <!-- Scrollable cards container -->
             <div id="previously-called-list" class="flex-1 min-h-0 overflow-y-auto hide-scrollbar space-y-3 flex-1 px-4 py-2">
@@ -107,6 +113,44 @@
 </div>
 
 <!-- JavaScript for API integration -->
+<div id="manual-checkin-modal" class="fixed inset-0 z-50 hidden" aria-hidden="true">
+    <div class="absolute inset-0 bg-black/40" data-modal-close></div>
+    <div class="relative mx-auto mt-16 w-[92%] max-w-lg rounded-xl bg-white p-6 shadow-[0_20px_60px_rgba(0,0,0,0.25)]">
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="text-xl font-bold text-gray-800">Manual Check-in</h3>
+            <button type="button" data-modal-close
+                    class="inline-flex items-center justify-center rounded-md px-2 py-1 text-gray-500 hover:bg-gray-100">
+                <span class="sr-only">Close</span>
+                ✕
+            </button>
+        </div>
+        <p class="text-sm text-gray-500 mb-4">Create a manual checkout entry for a child.</p>
+        <form id="manual-checkin-form" class="space-y-4" novalidate>
+            <div>
+                <label for="manual-first-name" class="block text-sm font-semibold text-gray-700">First name</label>
+                <input id="manual-first-name" name="first_name" type="text" autocomplete="given-name" required
+                       class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-base text-gray-900 shadow-sm focus:border-gray-500 focus:outline-none focus:ring-1 focus:ring-gray-500">
+            </div>
+            <div>
+                <label for="manual-last-name" class="block text-sm font-semibold text-gray-700">Last name</label>
+                <input id="manual-last-name" name="last_name" type="text" autocomplete="family-name" required
+                       class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-base text-gray-900 shadow-sm focus:border-gray-500 focus:outline-none focus:ring-1 focus:ring-gray-500">
+            </div>
+            <div id="manual-checkin-error" class="hidden rounded-md bg-red-50 px-3 py-2 text-sm text-red-700"></div>
+            <div class="flex items-center justify-end gap-3">
+                <button type="button" data-modal-close
+                        class="inline-flex items-center rounded-md border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 cursor-pointer">
+                    Cancel
+                </button>
+                <button id="manual-checkin-submit" type="submit"
+                        class="inline-flex items-center rounded-md bg-gray-800 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 cursor-pointer">
+                    Save
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <script src="/static/pages/checkoutsv1/checkouts.js"></script>
 </body>
 </html>
