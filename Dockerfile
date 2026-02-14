@@ -9,12 +9,12 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Copy source code
-COPY . .
-
 # Install migrate binary (SQLite driver requires CGO + sqlite3 build tag)
 ARG MIGRATE_VERSION=v4.17.1
 RUN CGO_ENABLED=1 GOBIN=/app/bin go install -tags 'sqlite3' github.com/golang-migrate/migrate/v4/cmd/migrate@${MIGRATE_VERSION}
+
+# Copy source code
+COPY . .
 
 # Build Go binary with CGO enabled (needed for SQLite)
 RUN CGO_ENABLED=1 GOOS=linux go build -o /app/nw-kids-checkout .
@@ -22,7 +22,7 @@ RUN CGO_ENABLED=1 GOOS=linux go build -o /app/nw-kids-checkout .
 # =====================================
 # Final Stage
 # =====================================
-FROM debian:bookworm-slim
+FROM debian:12.13-slim
 
 # Install runtime dependencies: CA certs for TLS, SQLite CLI
 RUN apt-get update \

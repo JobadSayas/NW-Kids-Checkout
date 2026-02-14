@@ -9,13 +9,17 @@ ATTACH 'seed/seed.db' AS seed;
 
 BEGIN;
 
-INSERT INTO locations
+INSERT INTO events
 SELECT *
-FROM seed.locations;
+FROM seed.events;
 
 INSERT INTO location_groups
 SELECT *
 FROM seed.location_groups;
+
+INSERT INTO locations
+SELECT *
+FROM seed.locations;
 
 COMMIT;
 DETACH seed;
