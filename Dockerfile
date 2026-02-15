@@ -5,6 +5,8 @@ FROM golang:1.25-alpine AS builder
 
 WORKDIR /app
 
+ARG ENVIRONMENT=production
+
 # Important: CGO enabled for go-sqlite3
 ENV CGO_ENABLED=1
 
@@ -24,6 +26,9 @@ RUN GOBIN=/app/bin go install -tags 'sqlite3' github.com/golang-migrate/migrate/
 
 # Copy source code
 COPY . .
+
+# Build asset cache-busting versions
+RUN ENVIRONMENT=$ENVIRONMENT go run ./cmd/assets
 
 # Build Go binary with CGO enabled (needed for SQLite)
 RUN GOOS=linux go build -o /app/nw-kids-checkout .

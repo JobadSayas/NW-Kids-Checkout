@@ -3,6 +3,9 @@ KIDS_CHECKIN_DB_FILE := database/kids-checkin.db
 BIN_NAME := kids-checkin
 BIN_PATH := ./bin/$(BIN_NAME)
 
+ASSET_BUILD ?= 0
+ASSET_SCRIPT := go run ./cmd/assets
+
 # help must be first so that it is the default.
 .PHONY: help
 help:
@@ -33,7 +36,12 @@ db-new-migration:
 .PHONY: build
 build:
 	mkdir -pv bin && \
+	if [ "$(ASSET_BUILD)" = "1" ]; then godotenv $(ASSET_SCRIPT); fi && \
     godotenv go build -o $(BIN_PATH) main.go
+
+.PHONY: assets
+assets:
+	godotenv $(ASSET_SCRIPT)
 
 .PHONY: web
 web: build
