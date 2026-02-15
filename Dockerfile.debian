@@ -1,20 +1,11 @@
 # =====================================
 # Builder Stage
 # =====================================
-FROM golang:1.25-alpine AS builder
+FROM golang:1.25-bookworm AS builder
 
 WORKDIR /app
 
 ARG ENVIRONMENT=production
-
-# Important: CGO enabled for go-sqlite3
-ENV CGO_ENABLED=1
-
-# Install build deps for CGO + SQLite (aligned with go-sqlite3 Alpine guidance)
-RUN apk add --no-cache gcc musl-dev sqlite-dev
-
-# Fix musl sqlite3 LFS symbols (pread64/pwrite64/off64_t)
-ENV CGO_CFLAGS="-Dpread64=pread -Dpwrite64=pwrite -Doff64_t=off_t"
 
 # Download dependencies first for caching
 COPY go.mod go.sum ./
@@ -22,7 +13,7 @@ RUN go mod download
 
 # Install migrate binary (SQLite driver requires CGO + sqlite3 build tag)
 ARG MIGRATE_VERSION=v4.17.1
-RUN GOBIN=/app/bin go install -tags 'sqlite3' github.com/golang-migrate/migrate/v4/cmd/migrate@${MIGRATE_VERSION}
+RUN CGO_ENABLED=1 GOBIN=/app/bin go install -tags 'sqlite3' github.com/golang-migrate/migrate/v4/cmd/migrate@${MIGRATE_VERSION}
 
 # Copy source code
 COPY . .
@@ -31,15 +22,17 @@ COPY . .
 RUN ENVIRONMENT=$ENVIRONMENT go run ./cmd/assets
 
 # Build Go binary with CGO enabled (needed for SQLite)
-RUN GOOS=linux go build -o /app/nw-kids-checkout .
+RUN CGO_ENABLED=1 GOOS=linux go build -o /app/nw-kids-checkout .
 
 # =====================================
 # Final Stage
 # =====================================
-FROM alpine:3.20
+FROM debian:12.13-slim
 
-# Install runtime dependencies: CA certs for TLS, SQLite libs/CLI
-RUN apk add --no-cache ca-certificates sqlite-libs sqlite
+# Install runtime dependencies: CA certs for TLS, SQLite CLI
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates sqlite3 \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -53,7 +46,7 @@ COPY db/migrations /app/db/migrations
 # Create a directory for SQLite database + WAL/SHM
 RUN mkdir /data
 
-# Mark /data as a volume (Podman can mount persistent storage here)
+# Mark /data as a volume (Dokploy or Podman can mount persistent storage here)
 VOLUME /data
 
 # Default environment variables
@@ -61,7 +54,7 @@ ENV DB_FILE=/data/kids-checkin.db \
     PORT=3000
 
 # Create a non-root user for prod (UID 1001)
-RUN addgroup -g 1001 app && adduser -D -u 1001 -G app app
+RUN groupadd -g 1001 app && useradd -m -u 1001 -g app app
 
 # Set default user to non-root (can be overridden in dev)
 USER app
