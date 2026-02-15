@@ -11,6 +11,12 @@ const API_CALL_BLOCKS = {
 };
 
 const CONFIRMED_ICON_SRC = '/static/img/confirmed-checkbox.svg';
+const MANUAL_STAR_ICON_SRC = '/static/img/star.svg';
+
+function getManualCheckinStarMarkup(source) {
+    if (source !== 'manual') return '';
+    return ` <img src="${MANUAL_STAR_ICON_SRC}" alt="Manual checkin" class="inline-block h-5 w-5 ml-2 relative -top-0.5">`;
+}
 
 function normalizeCheckoutsResponse(data) {
     if (Array.isArray(data)) return data;
@@ -226,8 +232,8 @@ function updateUI() {
     // Update current child (most recent)
     if (childrenData.length > 0) {
         const currentChild = childrenData[0];
-        document.getElementById('current-child-name').textContent =
-            `${currentChild.first_name} ${currentChild.last_name}`;
+        document.getElementById('current-child-name').innerHTML =
+            `${currentChild.first_name} ${currentChild.last_name}${getManualCheckinStarMarkup(currentChild.source)}`;
         document.getElementById('current-child-code').textContent = currentChild.source === 'manual'
             ? '---'
             : (currentChild.security_code || '----');
@@ -279,7 +285,7 @@ function updateUI() {
         card.className = 'bg-white rounded-lg py-2.5 px-4 shadow-[0_0_10px_rgba(0,0,0,0.25)] flex flex-col justify-center';
         card.innerHTML = `
             <div class="font-bold text-gray-800 text-2xl mb-0">
-                ${child.first_name} ${child.last_name}
+                ${child.first_name} ${child.last_name}${getManualCheckinStarMarkup(child.source)}
             </div>
             <div class="flex justify-between items-center">
                 <div class="text-black text-xl">
