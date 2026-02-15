@@ -70,6 +70,9 @@ func FetchCheckouts(ctx context.Context, cmd *cli.Command) error {
 
 		err = checkoutLoop(ctx, locationsRepo, checkinRepo, pcClient, locationUpdateInterval)
 		if err != nil {
+			if ctx.Err() != nil {
+				break
+			}
 			return fmt.Errorf("failed to checkoutLoop: %w", err)
 		}
 
