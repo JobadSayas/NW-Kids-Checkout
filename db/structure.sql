@@ -47,7 +47,7 @@ CREATE TABLE manual_checkins
     public_id                TEXT,
     first_name               TEXT NOT NULL,
     last_name                TEXT NOT NULL,
-    checked_out_at           DATETIME,
+    checked_out_at           DATETIME DEFAULT NULL,
     checked_out_confirmed_at DATETIME DEFAULT NULL
 );
 CREATE INDEX idx_manual_checked_out_at ON manual_checkins (checked_out_at);
