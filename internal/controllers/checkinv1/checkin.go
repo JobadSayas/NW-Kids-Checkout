@@ -58,7 +58,7 @@ func (controller *Controller) RegisterRoutes(app *fiber.App) {
 
 	checkinGroup.Get("/checkouts", controller.Checkouts)
 	checkinGroup.Patch("/:planning_center_id/checked_out_confirmed", controller.PatchCheckedOutConfirmed)
-	checkinGroup.Patch("/manual/:public_id/checked_out_confirmed", controller.PatchManualCheckedOutConfirmed)
+	checkinGroup.Patch("/manual-checkins/:public_id/checked_out_confirmed", controller.PatchManualCheckedOutConfirmed)
 }
 
 func (controller *Controller) Checkouts(c *fiber.Ctx) error {

@@ -6,8 +6,7 @@ let childrenData = [];
 
 const API_CALL_BLOCKS = {
     fetchChildrenData: false,
-    confirmCheckedOut: false,
-    manualCheckin: false
+    confirmCheckedOut: false
 };
 
 const CONFIRMED_ICON_SRC = '/static/img/confirmed-checkbox.svg';
@@ -46,61 +45,6 @@ function isApiCallBlocked(callName) {
     return Boolean(API_CALL_BLOCKS[callName]);
 }
 
-function setManualCheckinError(message) {
-    const errorEl = document.getElementById('manual-checkin-error');
-    if (!errorEl) return;
-
-    if (message) {
-        errorEl.textContent = message;
-        errorEl.classList.remove('hidden');
-    } else {
-        errorEl.textContent = '';
-        errorEl.classList.add('hidden');
-    }
-}
-
-function toggleManualCheckinModal(open) {
-    const modal = document.getElementById('manual-checkin-modal');
-    if (!modal) return;
-
-    if (open) {
-        modal.classList.remove('hidden');
-        modal.setAttribute('aria-hidden', 'false');
-    } else {
-        modal.classList.add('hidden');
-        modal.setAttribute('aria-hidden', 'true');
-        setManualCheckinError('');
-    }
-}
-
-async function createManualCheckin(payload) {
-    if (isApiCallBlocked('manualCheckin')) return null;
-
-    API_CALL_BLOCKS.manualCheckin = true;
-    try {
-        const response = await fetch(
-            encodeURI(`${API_URL}/v1/checkins/manual`),
-            {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            }
-        );
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(errorText || `HTTP error! status: ${response.status}`);
-        }
-
-        return await response.json();
-    } catch (error) {
-        console.error('Error creating manual checkin:', error);
-        throw error;
-    } finally {
-        API_CALL_BLOCKS.manualCheckin = false;
-    }
-}
-
 async function confirmCheckedOut(source, planningCenterId, publicId, checkbox, confirmed) {
     let endpoint = '';
     if (source === 'manual') {
@@ -108,7 +52,7 @@ async function confirmCheckedOut(source, planningCenterId, publicId, checkbox, c
             console.error('Missing public_id for manual confirmation');
             return;
         }
-        endpoint = `${API_URL}/v1/checkins/manual/${publicId}/checked_out_confirmed`;
+        endpoint = `${API_URL}/v1/checkins/manual-checkins/${publicId}/checked_out_confirmed`;
     } else {
         if (source && source !== 'planning_center') {
             console.warn(`Skipping confirmation for source: ${source}`);
@@ -330,71 +274,6 @@ function updateAllTimes() {
 
 // Initialize and start periodic updates
 document.addEventListener('DOMContentLoaded', function() {
-    const openManualCheckinButton = document.getElementById('open-manual-checkin');
-    const manualCheckinForm = document.getElementById('manual-checkin-form');
-    const manualFirstName = document.getElementById('manual-first-name');
-    const manualLastName = document.getElementById('manual-last-name');
-    const manualSubmitButton = document.getElementById('manual-checkin-submit');
-
-    if (openManualCheckinButton) {
-        openManualCheckinButton.addEventListener('click', function() {
-            toggleManualCheckinModal(true);
-            if (manualFirstName) manualFirstName.focus();
-        });
-    }
-
-    document.querySelectorAll('[data-modal-close]').forEach((closeButton) => {
-        closeButton.addEventListener('click', function() {
-            toggleManualCheckinModal(false);
-        });
-    });
-
-    if (manualCheckinForm) {
-        manualCheckinForm.addEventListener('submit', async function(event) {
-            event.preventDefault();
-            setManualCheckinError('');
-
-            const firstName = manualFirstName?.value.trim() || '';
-            const lastName = manualLastName?.value.trim() || '';
-
-            if (!firstName || !lastName) {
-                setManualCheckinError('First and last name are required.');
-                return;
-            }
-
-            if (manualSubmitButton) {
-                manualSubmitButton.disabled = true;
-                manualSubmitButton.textContent = 'Saving...';
-            }
-
-            try {
-                await createManualCheckin({
-                    first_name: firstName,
-                    last_name: lastName
-                });
-
-                if (manualCheckinForm) {
-                    manualCheckinForm.reset();
-                }
-                toggleManualCheckinModal(false);
-                fetchChildrenData();
-            } catch (error) {
-                setManualCheckinError(error.message || 'Unable to save manual check-out.');
-            } finally {
-                if (manualSubmitButton) {
-                    manualSubmitButton.disabled = false;
-                    manualSubmitButton.textContent = 'Save';
-                }
-            }
-        });
-    }
-
-    document.addEventListener('keydown', function(event) {
-        if (event.key === 'Escape') {
-            toggleManualCheckinModal(false);
-        }
-    });
-
     document.addEventListener('change', function(event) {
         const checkbox = event.target;
         if (!checkbox.classList.contains('child-confirmed-checkbox')) return;

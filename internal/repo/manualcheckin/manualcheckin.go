@@ -21,6 +21,7 @@ type Filter struct {
 	CheckedOutAtAfter  time.Time
 	Limit              int
 	Recent             bool
+	IncludeUnchecked   bool
 }
 
 type ManualCheckin struct {
@@ -35,6 +36,7 @@ type ManualCheckin struct {
 type Repo interface {
 	ListManualCheckins(ctx context.Context, filter Filter) ([]ManualCheckin, error)
 	CreateManualCheckin(ctx context.Context, manualCheckin ManualCheckin) (ManualCheckin, error)
+	SetManualCheckedOutAt(ctx context.Context, id int64, checkedOut bool) (ManualCheckin, error)
 	SetManualCheckedOutConfirmedAt(ctx context.Context, id int64, confirmed bool) (ManualCheckin, error)
 	RemoveOldManualCheckins(ctx context.Context, olderThan time.Time) (deletedCount int64, err error)
 }
@@ -75,12 +77,19 @@ func (s *sqliteRepo) ListManualCheckins(ctx context.Context, filter Filter) ([]M
 		builder = builder.Where(squirrel.Eq{"manual_checkins.last_name": filter.LastName})
 	}
 
-	if filter.CheckedOutAtBefore != (time.Time{}) {
+	if !filter.CheckedOutAtBefore.IsZero() {
 		builder = builder.Where(squirrel.Lt{"manual_checkins.checked_out_at": filter.CheckedOutAtBefore.UTC()})
 	}
 
-	if filter.CheckedOutAtAfter != (time.Time{}) {
-		builder = builder.Where(squirrel.Gt{"manual_checkins.checked_out_at": filter.CheckedOutAtAfter.UTC()})
+	if !filter.CheckedOutAtAfter.IsZero() {
+		if filter.IncludeUnchecked {
+			builder = builder.Where(squirrel.Or{
+				squirrel.Gt{"manual_checkins.checked_out_at": filter.CheckedOutAtAfter.UTC()},
+				squirrel.Eq{"manual_checkins.checked_out_at": nil},
+			})
+		} else {
+			builder = builder.Where(squirrel.Gt{"manual_checkins.checked_out_at": filter.CheckedOutAtAfter.UTC()})
+		}
 	}
 
 	if filter.Recent {
@@ -163,6 +172,45 @@ func (s *sqliteRepo) CreateManualCheckin(ctx context.Context, manualCheckin Manu
 
 	manualCheckin.ID = id
 	return manualCheckin, nil
+}
+
+func (s *sqliteRepo) SetManualCheckedOutAt(ctx context.Context, id int64, checkedOut bool) (ManualCheckin, error) {
+	var checkedOutAt *time.Time
+	updateBuilder := squirrel.Update("manual_checkins").
+		Where(squirrel.Eq{"id": id}).
+		RunWith(s.db)
+
+	if checkedOut {
+		now := time.Now().UTC()
+		checkedOutAt = &now
+	}
+	updateBuilder = updateBuilder.Set("checked_out_at", checkedOutAt)
+	if !checkedOut {
+		updateBuilder = updateBuilder.Set("checked_out_confirmed_at", nil)
+	}
+
+	res, err := updateBuilder.ExecContext(ctx)
+	if err != nil {
+		return ManualCheckin{}, err
+	}
+
+	ra, err := res.RowsAffected()
+	if err != nil {
+		return ManualCheckin{}, err
+	}
+	if ra == 0 {
+		return ManualCheckin{}, repo.ErrNotFound
+	}
+
+	manualCheckins, err := s.ListManualCheckins(ctx, Filter{ID: id, Limit: 1})
+	if err != nil {
+		return ManualCheckin{}, err
+	}
+	if len(manualCheckins) == 0 {
+		return ManualCheckin{}, repo.ErrNotFound
+	}
+
+	return manualCheckins[0], nil
 }
 
 func (s *sqliteRepo) SetManualCheckedOutConfirmedAt(ctx context.Context, id int64, confirmed bool) (ManualCheckin, error) {

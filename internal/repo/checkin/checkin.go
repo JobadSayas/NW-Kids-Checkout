@@ -110,11 +110,11 @@ func (s *sqliteRepo) ListCheckins(ctx context.Context, filter Filter) ([]Checkin
 		builder = builder.Where(squirrel.Eq{"checkins.last_name": filter.LastName})
 	}
 
-	if filter.CheckedOutAtBefore != (time.Time{}) {
+	if !filter.CheckedOutAtBefore.IsZero() {
 		builder = builder.Where(squirrel.Lt{"checkins.checked_out_at": filter.CheckedOutAtBefore.UTC()})
 	}
 
-	if filter.CheckedOutAtAfter != (time.Time{}) {
+	if !filter.CheckedOutAtAfter.IsZero() {
 		builder = builder.Where(squirrel.Gt{"checkins.checked_out_at": filter.CheckedOutAtAfter.UTC()})
 	}
 

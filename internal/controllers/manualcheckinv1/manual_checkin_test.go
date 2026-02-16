@@ -32,14 +32,15 @@ func TestController_PostManualCheckin(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		payload := map[string]any{
-			"public_id":  "manual-public-1",
-			"first_name": "jane",
-			"last_name":  "zeta",
+			"public_id":          "manual-public-1",
+			"first_name":         "jane",
+			"last_name":          "zeta",
+			"immediate_checkout": true,
 		}
 		body, err := json.Marshal(payload)
 		require.NoError(t, err)
 
-		req := httptest.NewRequest("POST", "/v1/checkins/manual", bytes.NewBuffer(body))
+		req := httptest.NewRequest("POST", "/v1/checkins/manual-checkins", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := app.Test(req)
 		require.NoError(t, err)
@@ -62,8 +63,34 @@ func TestController_PostManualCheckin(t *testing.T) {
 		assert.Equal(t, "manual-public-1", manualCheckins[0].PublicID)
 	})
 
+	t.Run("not immediate", func(t *testing.T) {
+		payload := map[string]any{
+			"public_id":          "manual-public-2",
+			"first_name":         "sam",
+			"last_name":          "beta",
+			"immediate_checkout": false,
+		}
+		body, err := json.Marshal(payload)
+		require.NoError(t, err)
+
+		req := httptest.NewRequest("POST", "/v1/checkins/manual-checkins", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		require.Equal(t, fiber.StatusOK, resp.StatusCode)
+
+		var response Checkin
+		err = json.NewDecoder(resp.Body).Decode(&response)
+		require.NoError(t, err)
+		require.Nil(t, response.CheckedOutAt)
+		assert.Equal(t, "manual-public-2", response.PublicID)
+		assert.Equal(t, "sam", response.FirstName)
+		assert.Equal(t, "beta", response.LastName)
+		assert.Equal(t, "manual", response.Source)
+	})
+
 	t.Run("missing first name", func(t *testing.T) {
-		req := httptest.NewRequest("POST", "/v1/checkins/manual", bytes.NewBufferString("{\"last_name\":\"zeta\"}"))
+		req := httptest.NewRequest("POST", "/v1/checkins/manual-checkins", bytes.NewBufferString("{\"last_name\":\"zeta\"}"))
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := app.Test(req)
 		require.NoError(t, err)
@@ -71,7 +98,7 @@ func TestController_PostManualCheckin(t *testing.T) {
 	})
 
 	t.Run("missing last name", func(t *testing.T) {
-		req := httptest.NewRequest("POST", "/v1/checkins/manual", bytes.NewBufferString("{\"first_name\":\"jane\"}"))
+		req := httptest.NewRequest("POST", "/v1/checkins/manual-checkins", bytes.NewBufferString("{\"first_name\":\"jane\"}"))
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := app.Test(req)
 		require.NoError(t, err)
@@ -114,7 +141,7 @@ func TestController_GetManualCheckins(t *testing.T) {
 	require.NoError(t, err)
 
 	checkedOutAfter := now.Add(-3 * time.Hour).Format(time.RFC3339)
-	req := httptest.NewRequest("GET", "/v1/checkins/manual?checked_out_after="+checkedOutAfter, nil)
+	req := httptest.NewRequest("GET", "/v1/checkins/manual-checkins?checked_out_after="+checkedOutAfter, nil)
 	req.Header.Set("Accept", "application/json")
 	resp, err := app.Test(req)
 	require.NoError(t, err)
@@ -132,6 +159,63 @@ func TestController_GetManualCheckins(t *testing.T) {
 	assert.Equal(t, "manual-public-1", payload[1].PublicID)
 	assert.Equal(t, "manual", payload[0].Source)
 	assert.Equal(t, "manual", payload[1].Source)
+}
+
+func TestController_PatchManualCheckedOut(t *testing.T) {
+	app, store := setupAuthedApp()
+
+	testDB, cleanup, err := db.PrepareTestDB()
+	require.NoError(t, err, "Failed to prepare test DB")
+	t.Cleanup(cleanup)
+
+	controller := NewController(testDB, store)
+	controller.RegisterRoutes(app)
+
+	_, err = squirrel.Delete("manual_checkins").RunWith(testDB).ExecContext(t.Context())
+	require.NoError(t, err)
+
+	manualRepo := manualcheckin.NewRepo(testDB)
+	checkedOutAt := time.Now().UTC().Add(-30 * time.Minute)
+	confirmedAt := time.Now().UTC().Add(-15 * time.Minute)
+
+	created, err := manualRepo.CreateManualCheckin(t.Context(), manualcheckin.ManualCheckin{
+		PublicID:              "manual-public-3",
+		FirstName:             "lena",
+		LastName:              "rivers",
+		CheckedOutAt:          checkedOutAt,
+		CheckedOutConfirmedAt: confirmedAt,
+	})
+	require.NoError(t, err)
+
+	t.Run("clear checked out", func(t *testing.T) {
+		body := bytes.NewBufferString("{\"checked_out\":false}")
+		req := httptest.NewRequest("PATCH", "/v1/checkins/manual-checkins/"+created.PublicID+"/checked_out", body)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		require.Equal(t, fiber.StatusOK, resp.StatusCode)
+
+		var response Checkin
+		err = json.NewDecoder(resp.Body).Decode(&response)
+		require.NoError(t, err)
+		assert.Nil(t, response.CheckedOutAt)
+		assert.Nil(t, response.CheckedOutConfirmedAt)
+	})
+
+	t.Run("set checked out", func(t *testing.T) {
+		body := bytes.NewBufferString("{\"checked_out\":true}")
+		req := httptest.NewRequest("PATCH", "/v1/checkins/manual-checkins/"+created.PublicID+"/checked_out", body)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		require.Equal(t, fiber.StatusOK, resp.StatusCode)
+
+		var response Checkin
+		err = json.NewDecoder(resp.Body).Decode(&response)
+		require.NoError(t, err)
+		require.NotNil(t, response.CheckedOutAt)
+		assert.WithinDuration(t, time.Now().UTC(), *response.CheckedOutAt, 2*time.Second)
+	})
 }
 
 func setupAuthedApp() (*fiber.App, *session.Store) {

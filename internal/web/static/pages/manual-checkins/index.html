@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NW Kids - Manual Check-Ins</title>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico"/>
+    <link rel="stylesheet" href="/static/css/tailwind.css?v=dev">
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-slate-50 text-slate-900">
+<div class="max-w-6xl mx-auto px-6 py-10">
+    <header class="flex flex-col gap-3 mb-8">
+        <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div class="flex items-center gap-3">
+                <a href="/">
+                    <img src="/static/img/NWKids-logo.svg" alt="NWKids Logo" class="h-14 md:h-20 w-auto">
+                </a>
+                <div>
+                    <h1 class="text-3xl font-semibold">Manual Check-Ins</h1>
+                    <p class="text-sm text-slate-600">Create pre-check-ins and check out with one click.</p>
+                </div>
+            </div>
+            <button id="open-manual-checkin"
+                    class="inline-flex items-center justify-center rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2 cursor-pointer">
+                Create Manual Check-In
+            </button>
+        </div>
+    </header>
+
+    <div id="page-status" class="hidden mb-4 rounded-md border border-slate-200 bg-white px-4 py-3 text-sm"></div>
+
+    <div class="rounded-xl border border-slate-200 bg-white shadow-sm">
+        <table class="min-w-full text-sm">
+            <thead class="sticky top-0 z-10 bg-slate-100 text-left text-xs uppercase tracking-wide text-slate-600 shadow-sm">
+            <tr>
+                <th class="px-4 py-3">Name</th>
+                <th class="px-4 py-3">Status</th>
+                <th class="px-4 py-3">Checked Out</th>
+                <th class="px-4 py-3">Action</th>
+            </tr>
+            </thead>
+            <tbody id="manual-checkins-body" class="divide-y divide-slate-100">
+            <tr>
+                <td class="px-4 py-6 text-center text-slate-500" colspan="4">Loading manual check-ins...</td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div id="manual-checkin-modal" class="fixed inset-0 z-50 hidden" aria-hidden="true">
+    <div class="absolute inset-0 bg-black/40" data-modal-close></div>
+    <div class="relative mx-auto mt-16 w-[92%] max-w-lg rounded-xl bg-white p-6 shadow-[0_20px_60px_rgba(0,0,0,0.25)]">
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="text-xl font-bold text-gray-800">Create Manual Check-In</h3>
+            <button type="button" data-modal-close
+                    class="inline-flex items-center justify-center rounded-md px-2 py-1 text-gray-500 hover:bg-gray-100 cursor-pointer">
+                <span class="sr-only">Close</span>
+                ✕
+            </button>
+        </div>
+        <p class="text-sm text-gray-500 mb-4">Add a manual check-in and optionally check out immediately.</p>
+        <form id="manual-checkin-form" class="space-y-4" novalidate>
+            <div>
+                <label for="manual-first-name" class="block text-sm font-semibold text-gray-700">First name</label>
+                <input id="manual-first-name" name="first_name" type="text" autocomplete="given-name" required
+                       class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-base text-gray-900 shadow-sm focus:border-gray-500 focus:outline-none focus:ring-1 focus:ring-gray-500">
+            </div>
+            <div>
+                <label for="manual-last-name" class="block text-sm font-semibold text-gray-700">Last name</label>
+                <input id="manual-last-name" name="last_name" type="text" autocomplete="family-name" required
+                       class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-base text-gray-900 shadow-sm focus:border-gray-500 focus:outline-none focus:ring-1 focus:ring-gray-500">
+            </div>
+            <label class="flex items-center gap-3 text-sm text-gray-700">
+                <input id="manual-immediate-checkout" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-slate-900 focus:ring-slate-500">
+                Check out immediately
+            </label>
+            <div id="manual-checkin-error" class="hidden rounded-md bg-red-50 px-3 py-2 text-sm text-red-700"></div>
+            <div class="flex items-center justify-end gap-3">
+                <button type="button" data-modal-close
+                        class="inline-flex items-center rounded-md border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 cursor-pointer">
+                    Cancel
+                </button>
+                <button id="manual-checkin-submit" type="submit"
+                        class="inline-flex items-center rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2 cursor-pointer">
+                    Save
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script src="/static/pages/manual-checkins/manual-checkins.js?v=dev"></script>
+</body>
+</html>

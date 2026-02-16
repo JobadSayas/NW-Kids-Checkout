@@ -69,10 +69,17 @@ func Test_sqliteRepo_ListManualCheckins(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	checkin4, err := s.CreateManualCheckin(t.Context(), ManualCheckin{
+		PublicID:  "public-4",
+		FirstName: "taylor",
+		LastName:  "delta",
+	})
+	require.NoError(t, err)
+
 	t.Run("no filter", func(t *testing.T) {
 		c, err := s.ListManualCheckins(t.Context(), Filter{})
 		require.NoError(t, err)
-		assert.Lenf(t, c, 3, "expected 3 manual checkins, got %d", len(c))
+		assert.Lenf(t, c, 4, "expected 4 manual checkins, got %d", len(c))
 	})
 
 	t.Run("filter by ID", func(t *testing.T) {
@@ -120,9 +127,9 @@ func Test_sqliteRepo_ListManualCheckins(t *testing.T) {
 	t.Run("filter by recent", func(t *testing.T) {
 		c, err := s.ListManualCheckins(t.Context(), Filter{Recent: true})
 		require.NoError(t, err)
-		require.Len(t, c, 3)
+		require.Len(t, c, 4)
 		assert.Equal(t, checkin3.ID, c[0].ID)
-		assert.ElementsMatch(t, []int64{checkin1.ID, checkin2.ID}, []int64{c[1].ID, c[2].ID})
+		assert.ElementsMatch(t, []int64{checkin1.ID, checkin2.ID, checkin4.ID}, []int64{c[1].ID, c[2].ID, c[3].ID})
 	})
 
 	t.Run("filter by limit", func(t *testing.T) {
@@ -130,6 +137,13 @@ func Test_sqliteRepo_ListManualCheckins(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, c, 1)
 		assert.Equal(t, checkin3.ID, c[0].ID)
+	})
+
+	t.Run("filter by checked out after with include unchecked", func(t *testing.T) {
+		c, err := s.ListManualCheckins(t.Context(), Filter{CheckedOutAtAfter: time1, IncludeUnchecked: true})
+		require.NoError(t, err)
+		require.Len(t, c, 2)
+		assert.ElementsMatch(t, []int64{checkin3.ID, checkin4.ID}, []int64{c[0].ID, c[1].ID})
 	})
 
 	_ = checkin1
@@ -283,6 +297,40 @@ func Test_sqliteRepo_RemoveOldManualCheckins(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test_sqliteRepo_SetManualCheckedOutAt(t *testing.T) {
+	s := NewRepo(testDB)
+	_, err := squirrel.Delete("manual_checkins").RunWith(testDB).ExecContext(t.Context())
+	require.NoError(t, err)
+
+	confirmed := time.Now().UTC().Add(-15 * time.Minute)
+	created, err := s.CreateManualCheckin(t.Context(), ManualCheckin{
+		FirstName:             "casey",
+		LastName:              "quinn",
+		CheckedOutAt:          time.Now().UTC().Add(-30 * time.Minute),
+		CheckedOutConfirmedAt: confirmed,
+	})
+	require.NoError(t, err)
+
+	t.Run("clear checked out and confirmation", func(t *testing.T) {
+		updated, err := s.SetManualCheckedOutAt(t.Context(), created.ID, false)
+		require.NoError(t, err)
+		assert.True(t, updated.CheckedOutAt.IsZero())
+		assert.True(t, updated.CheckedOutConfirmedAt.IsZero())
+
+		rows, err := s.ListManualCheckins(t.Context(), Filter{ID: created.ID, Limit: 1})
+		require.NoError(t, err)
+		require.Len(t, rows, 1)
+		assert.True(t, rows[0].CheckedOutAt.IsZero())
+		assert.True(t, rows[0].CheckedOutConfirmedAt.IsZero())
+	})
+
+	t.Run("set checked out timestamp", func(t *testing.T) {
+		updated, err := s.SetManualCheckedOutAt(t.Context(), created.ID, true)
+		require.NoError(t, err)
+		assert.WithinDuration(t, time.Now().UTC(), updated.CheckedOutAt, 2*time.Second)
+	})
 }
 
 func Test_sqliteRepo_SetManualCheckedOutConfirmedAt(t *testing.T) {

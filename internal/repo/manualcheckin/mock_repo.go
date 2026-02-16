@@ -12,6 +12,9 @@ type MockRepo struct {
 	CreateManualCheckinFunc          func(ctx context.Context, manualCheckin ManualCheckin) (ManualCheckin, error)
 	CreateManualCheckinFuncCallCount int
 
+	SetManualCheckedOutAtFunc          func(ctx context.Context, id int64, checkedOut bool) (ManualCheckin, error)
+	SetManualCheckedOutAtFuncCallCount int
+
 	SetManualCheckedOutConfirmedAtFunc          func(ctx context.Context, id int64, confirmed bool) (ManualCheckin, error)
 	SetManualCheckedOutConfirmedAtFuncCallCount int
 
@@ -44,6 +47,15 @@ func (repo *MockRepo) SetManualCheckedOutConfirmedAt(ctx context.Context, id int
 	}
 
 	panic("MockRepo.SetManualCheckedOutConfirmedAt not implemented")
+}
+
+func (repo *MockRepo) SetManualCheckedOutAt(ctx context.Context, id int64, checkedOut bool) (ManualCheckin, error) {
+	repo.SetManualCheckedOutAtFuncCallCount++
+	if repo.SetManualCheckedOutAtFunc != nil {
+		return repo.SetManualCheckedOutAtFunc(ctx, id, checkedOut)
+	}
+
+	panic("MockRepo.SetManualCheckedOutAt not implemented")
 }
 
 func (repo *MockRepo) RemoveOldManualCheckins(ctx context.Context, olderThan time.Time) (deletedCount int64, err error) {

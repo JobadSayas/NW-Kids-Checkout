@@ -134,7 +134,7 @@ func TestController_PatchManualCheckedOutConfirmed(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("success", func(t *testing.T) {
-		req := httptest.NewRequest("PATCH", "/v1/checkins/manual/manual-public-1/checked_out_confirmed", bytes.NewBufferString("{\"confirmed\":true}"))
+		req := httptest.NewRequest("PATCH", "/v1/checkins/manual-checkins/manual-public-1/checked_out_confirmed", bytes.NewBufferString("{\"confirmed\":true}"))
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := app.Test(req)
 		require.NoError(t, err)
@@ -154,7 +154,7 @@ func TestController_PatchManualCheckedOutConfirmed(t *testing.T) {
 	})
 
 	t.Run("not found", func(t *testing.T) {
-		req := httptest.NewRequest("PATCH", "/v1/checkins/manual/missing/checked_out_confirmed", bytes.NewBufferString("{\"confirmed\":true}"))
+		req := httptest.NewRequest("PATCH", "/v1/checkins/manual-checkins/missing/checked_out_confirmed", bytes.NewBufferString("{\"confirmed\":true}"))
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := app.Test(req)
 		require.NoError(t, err)
@@ -162,14 +162,14 @@ func TestController_PatchManualCheckedOutConfirmed(t *testing.T) {
 	})
 
 	t.Run("missing content type", func(t *testing.T) {
-		req := httptest.NewRequest("PATCH", "/v1/checkins/manual/manual-public-1/checked_out_confirmed", bytes.NewBufferString("{\"confirmed\":true}"))
+		req := httptest.NewRequest("PATCH", "/v1/checkins/manual-checkins/manual-public-1/checked_out_confirmed", bytes.NewBufferString("{\"confirmed\":true}"))
 		resp, err := app.Test(req)
 		require.NoError(t, err)
 		assert.Equal(t, fiber.StatusUnsupportedMediaType, resp.StatusCode)
 	})
 
 	t.Run("unsupported content type", func(t *testing.T) {
-		req := httptest.NewRequest("PATCH", "/v1/checkins/manual/manual-public-1/checked_out_confirmed", bytes.NewBufferString("{\"confirmed\":true}"))
+		req := httptest.NewRequest("PATCH", "/v1/checkins/manual-checkins/manual-public-1/checked_out_confirmed", bytes.NewBufferString("{\"confirmed\":true}"))
 		req.Header.Set("Content-Type", "text/plain")
 		resp, err := app.Test(req)
 		require.NoError(t, err)
@@ -177,7 +177,7 @@ func TestController_PatchManualCheckedOutConfirmed(t *testing.T) {
 	})
 
 	t.Run("invalid json", func(t *testing.T) {
-		req := httptest.NewRequest("PATCH", "/v1/checkins/manual/manual-public-1/checked_out_confirmed", bytes.NewBufferString("{bad"))
+		req := httptest.NewRequest("PATCH", "/v1/checkins/manual-checkins/manual-public-1/checked_out_confirmed", bytes.NewBufferString("{bad"))
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := app.Test(req)
 		require.NoError(t, err)
@@ -185,7 +185,7 @@ func TestController_PatchManualCheckedOutConfirmed(t *testing.T) {
 	})
 
 	t.Run("missing confirmed field", func(t *testing.T) {
-		req := httptest.NewRequest("PATCH", "/v1/checkins/manual/manual-public-1/checked_out_confirmed", bytes.NewBufferString("{}"))
+		req := httptest.NewRequest("PATCH", "/v1/checkins/manual-checkins/manual-public-1/checked_out_confirmed", bytes.NewBufferString("{}"))
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := app.Test(req)
 		require.NoError(t, err)

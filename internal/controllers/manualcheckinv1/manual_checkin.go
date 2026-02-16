@@ -1,16 +1,20 @@
 package manualcheckinv1
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"mime"
 	"sort"
 	"strconv"
 	"time"
 
 	"kids-checkin/internal/controllers/middleware"
 	"kids-checkin/internal/controllers/session"
+	"kids-checkin/internal/repo"
 	"kids-checkin/internal/repo/manualcheckin"
+	"kids-checkin/internal/web/static"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -33,8 +37,11 @@ func (controller *Controller) RegisterRoutes(app *fiber.App) {
 	manualGroup := app.Group("/v1/checkins")
 	manualGroup.Use(middleware.AuthRequired(controller.sessionStore, ""))
 
-	manualGroup.Get("/manual", controller.GetManualCheckins)
-	manualGroup.Post("/manual", controller.PostManualCheckin)
+	manualGroup.Get("/manual-checkins", controller.GetManualCheckins)
+	manualGroup.Post("/manual-checkins", controller.PostManualCheckin)
+	manualGroup.Patch("/manual-checkins/:public_id/checked_out", controller.PatchManualCheckedOut)
+
+	app.Get("/manual-checkins", middleware.AuthRequired(controller.sessionStore, ""), controller.ManualCheckinsPage)
 }
 
 func (controller *Controller) GetManualCheckins(c *fiber.Ctx) error {
@@ -54,15 +61,20 @@ func (controller *Controller) GetManualCheckins(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 
-	manualCheckins = sortManualCheckins(manualCheckins)
+	if c.Query("sort") == "created" {
+		manualCheckins = sortManualCheckinsByCreated(manualCheckins)
+	} else {
+		manualCheckins = sortManualCheckins(manualCheckins)
+	}
 	return c.JSON(repoManualCheckinSliceToOutput(manualCheckins))
 }
 
 func (controller *Controller) PostManualCheckin(c *fiber.Ctx) error {
 	type manualCheckinPayload struct {
-		PublicID  string `json:"public_id"`
-		FirstName string `json:"first_name"`
-		LastName  string `json:"last_name"`
+		PublicID          string `json:"public_id"`
+		FirstName         string `json:"first_name"`
+		LastName          string `json:"last_name"`
+		ImmediateCheckout bool   `json:"immediate_checkout"`
 	}
 
 	var payload manualCheckinPayload
@@ -77,17 +89,84 @@ func (controller *Controller) PostManualCheckin(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "last_name is required")
 	}
 
-	created, err := controller.manualRepo.CreateManualCheckin(c.Context(), manualcheckin.ManualCheckin{
-		PublicID:     payload.PublicID,
-		FirstName:    payload.FirstName,
-		LastName:     payload.LastName,
-		CheckedOutAt: time.Now().UTC(),
-	})
+	manualCheckin := manualcheckin.ManualCheckin{
+		PublicID:  payload.PublicID,
+		FirstName: payload.FirstName,
+		LastName:  payload.LastName,
+	}
+	if payload.ImmediateCheckout {
+		manualCheckin.CheckedOutAt = time.Now().UTC()
+	}
+
+	created, err := controller.manualRepo.CreateManualCheckin(c.Context(), manualCheckin)
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 
 	return c.JSON(repoManualCheckinToOutput(created))
+}
+
+func (controller *Controller) PatchManualCheckedOut(c *fiber.Ctx) error {
+	publicID := c.Params("public_id")
+	if publicID == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "public_id is required")
+	}
+
+	contentType := c.Get("Content-Type")
+	if contentType == "" {
+		return fiber.NewError(fiber.StatusUnsupportedMediaType, "unsupported media type")
+	}
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err != nil || mediaType != fiber.MIMEApplicationJSON {
+		return fiber.NewError(fiber.StatusUnsupportedMediaType, "unsupported media type")
+	}
+
+	type checkedOutPayload struct {
+		CheckedOut *bool `json:"checked_out"`
+	}
+
+	var payload checkedOutPayload
+	decoder := json.NewDecoder(bytes.NewReader(c.Body()))
+	if err := decoder.Decode(&payload); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid JSON")
+	}
+
+	if payload.CheckedOut == nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid JSON")
+	}
+	checkedOut := *payload.CheckedOut
+
+	manualCheckins, err := controller.manualRepo.ListManualCheckins(c.Context(), manualcheckin.Filter{
+		PublicID: publicID,
+		Limit:    1,
+	})
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+	if len(manualCheckins) == 0 {
+		return fiber.NewError(fiber.StatusNotFound, "manual checkin not found")
+	}
+
+	updated, err := controller.manualRepo.SetManualCheckedOutAt(c.Context(), manualCheckins[0].ID, checkedOut)
+	if err != nil {
+		if errors.Is(err, repo.ErrNotFound) {
+			return fiber.NewError(fiber.StatusNotFound, "manual checkin not found")
+		}
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+
+	return c.JSON(repoManualCheckinToOutput(updated))
+}
+
+func (controller *Controller) ManualCheckinsPage(c *fiber.Ctx) error {
+	f, err := static.EmbeddedFS.Open("pages/manual-checkins/index.html")
+	if err != nil {
+		return fiber.ErrInternalServerError
+	}
+	defer f.Close()
+
+	c.Type("html")
+	return c.SendStream(f)
 }
 
 func repoManualCheckinToOutput(manualCheckin manualcheckin.ManualCheckin) Checkin {
@@ -132,10 +211,31 @@ func sortManualCheckins(checkins []manualcheckin.ManualCheckin) []manualcheckin.
 	return checkins
 }
 
+func sortManualCheckinsByCreated(checkins []manualcheckin.ManualCheckin) []manualcheckin.ManualCheckin {
+	sort.Slice(checkins, func(i, j int) bool {
+		if checkins[i].ID != checkins[j].ID {
+			return checkins[i].ID > checkins[j].ID
+		}
+		if checkins[i].LastName != checkins[j].LastName {
+			return checkins[i].LastName < checkins[j].LastName
+		}
+		return checkins[i].FirstName < checkins[j].FirstName
+	})
+	return checkins
+}
+
 func buildManualFilter(c *fiber.Ctx) (manualcheckin.Filter, error) {
 	filter := manualcheckin.Filter{
 		FirstName: c.Query("first_name"),
 		LastName:  c.Query("last_name"),
+	}
+
+	if includeUnchecked := c.Query("include_unchecked"); includeUnchecked != "" {
+		include, err := strconv.ParseBool(includeUnchecked)
+		if err != nil {
+			return manualcheckin.Filter{}, errors.New("cannot parse include_unchecked")
+		}
+		filter.IncludeUnchecked = include
 	}
 
 	if idStr := c.Query("id"); idStr != "" {
