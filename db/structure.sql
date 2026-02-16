@@ -51,3 +51,4 @@ CREATE TABLE manual_checkins
     checked_out_confirmed_at DATETIME DEFAULT NULL
 );
 CREATE INDEX idx_manual_checked_out_at ON manual_checkins (checked_out_at);
+CREATE INDEX idx_unique_pcid ON events (planning_center_id);
