@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NW Kids - Event Locations</title>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico"/>
+    <link rel="stylesheet" href="/static/css/tailwind.css">
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-slate-50 text-slate-900">
+<div class="max-w-6xl mx-auto px-6 py-10">
+    <header class="flex flex-col gap-3 mb-8">
+        <div class="flex items-center gap-3">
+            <a href="/admin">
+                <img src="/static/img/NWKids-logo.svg" alt="NWKids Logo" class="h-16 md:h-24 w-auto">
+            </a>
+            <div>
+                <h1 class="text-3xl font-semibold">Event Locations</h1>
+                <p class="text-sm text-slate-600">Event: <span id="event-name-label" class="font-semibold">-</span></p>
+                <p class="text-sm text-slate-600">Planning Center event ID: <span id="event-id-label" class="font-semibold">-</span></p>
+            </div>
+        </div>
+        <div class="flex flex-wrap items-center gap-3">
+            <button id="add-event-button" type="button" class="inline-flex cursor-pointer items-center justify-center rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400">
+                Add event to system
+            </button>
+            <p id="event-added-status" class="hidden text-sm font-semibold text-emerald-700">This event has already been added to the system.</p>
+        </div>
+    </header>
+
+    <div id="page-status" class="hidden mb-4 rounded-md border border-slate-200 bg-white px-4 py-3 text-sm"></div>
+
+    <div class="rounded-xl border border-slate-200 bg-white shadow-sm">
+        <table class="min-w-full text-sm">
+            <thead class="sticky top-0 z-10 bg-slate-100 text-left text-xs uppercase tracking-wide text-slate-600 shadow-sm">
+            <tr>
+                <th class="px-4 py-3">Location</th>
+                <th class="px-4 py-3">Parent</th>
+                <th class="px-4 py-3">Planning Center ID</th>
+            </tr>
+            </thead>
+            <tbody id="locations-body" class="divide-y divide-slate-100">
+            <tr>
+                <td class="px-4 py-6 text-center text-slate-500" colspan="3">Loading locations...</td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="mt-10">
+        <a href="/admin/planningcenter/events" class="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-900">
+            <span aria-hidden="true">←</span>
+            Back to events
+        </a>
+    </div>
+</div>
+
+<script src="/static/pages/admin/planningcenter-event.js?v=dev"></script>
+</body>
+</html>

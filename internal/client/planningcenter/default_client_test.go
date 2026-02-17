@@ -148,6 +148,45 @@ func Test_defaultClient_GetLocation_Real(t *testing.T) {
 	}
 }
 
+func Test_defaultClient_GetEventByID(t *testing.T) {
+	var requestCount int64
+
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt64(&requestCount, 1)
+
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprintf(w, `{"data":{"id":"pc_evt_22","type":"event","attributes":{"name":"Kids Service"}}}`)
+	}))
+	defer server.Close()
+
+	client := &defaultClient{
+		httpClient: server.Client(),
+		baseURL:    server.URL,
+		clientID:   "client",
+		secret:     "secret",
+	}
+
+	got, err := client.GetEventByID(t.Context(), "pc_evt_22")
+	require.NoError(t, err)
+	assert.Equal(t, "pc_evt_22", got.ID)
+	assert.Equal(t, "Kids Service", got.Name)
+	assert.Equal(t, int64(1), atomic.LoadInt64(&requestCount))
+}
+
+func Test_defaultClient_GetEventByID_EmptyID(t *testing.T) {
+	client := &defaultClient{
+		httpClient: http.DefaultClient,
+		baseURL:    "http://example.com",
+		clientID:   "client",
+		secret:     "secret",
+	}
+
+	_, err := client.GetEventByID(t.Context(), "")
+	require.Error(t, err)
+}
+
 func Test_defaultClient_GetLocationsForEvent(t *testing.T) {
 	require.NotEmpty(t, os.Getenv("PLANNING_CENTER_API_BASE_URL"), "PLANNING_CENTER_API_BASE_URL must be set to run this test")
 	require.NotEmpty(t, os.Getenv("PLANNING_CENTER_API_CLIENT_ID"), "PLANNING_CENTER_API_CLIENT_ID must be set to run this test")
@@ -217,12 +256,57 @@ func Test_defaultClient_GetEvents_EmptyNext(t *testing.T) {
 		secret:     "secret",
 	}
 
-	events, err := client.GetEvents(t.Context())
+	events, nextURL, err := client.GetEvents(t.Context())
 	require.NoError(t, err)
 	require.Len(t, events, 1)
 	assert.Equal(t, "event-1", events[0].ID)
 	assert.Equal(t, "Weekend Service", events[0].Name)
+	assert.Equal(t, "", nextURL)
 	assert.Equal(t, int64(1), atomic.LoadInt64(&requestCount))
+}
+
+func Test_defaultClient_GetEventsFromNextURL(t *testing.T) {
+	var requestCount int64
+
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt64(&requestCount, 1)
+
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprintf(w, `{"links":{"self":"%s","next":"%s"},"data":[{"id":"event-2","type":"event","attributes":{"name":"Sunday Service"}}]}`,
+			server.URL+r.URL.Path,
+			server.URL+"/next-page",
+		)
+	}))
+	defer server.Close()
+
+	client := &defaultClient{
+		httpClient: server.Client(),
+		baseURL:    server.URL,
+		clientID:   "client",
+		secret:     "secret",
+	}
+
+	events, nextURL, err := client.GetEventsFromNextURL(t.Context(), server.URL+"/events")
+	require.NoError(t, err)
+	require.Len(t, events, 1)
+	assert.Equal(t, "event-2", events[0].ID)
+	assert.Equal(t, "Sunday Service", events[0].Name)
+	assert.Equal(t, server.URL+"/next-page", nextURL)
+	assert.Equal(t, int64(1), atomic.LoadInt64(&requestCount))
+}
+
+func Test_defaultClient_GetEventsFromNextURL_EmptyURL(t *testing.T) {
+	client := &defaultClient{
+		httpClient: http.DefaultClient,
+		baseURL:    "http://example.com",
+		clientID:   "client",
+		secret:     "secret",
+	}
+
+	_, _, err := client.GetEventsFromNextURL(t.Context(), "")
+	require.Error(t, err)
 }
 
 func Test_getFilteredResults(t *testing.T) {

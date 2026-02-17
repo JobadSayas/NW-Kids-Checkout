@@ -30,7 +30,9 @@ type Client interface {
 	GetCheckoutsForLocation(ctx context.Context, locationID string, checkedOutOnOrAfter time.Time, limit int) ([]Checkout, error)
 	GetLocation(ctx context.Context, locationID string, includeAssociatedLocations bool) ([]Location, error)
 	GetLocationsForEvent(ctx context.Context, eventID string) ([]Location, error)
-	GetEvents(ctx context.Context) ([]Event, error)
+	GetEventByID(ctx context.Context, eventID string) (Event, error)
+	GetEvents(ctx context.Context) ([]Event, string, error)
+	GetEventsFromNextURL(ctx context.Context, nextURL string) ([]Event, string, error)
 }
 
 func NewClient() Client {

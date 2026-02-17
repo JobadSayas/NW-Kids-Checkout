@@ -102,6 +102,60 @@ func (client *defaultClient) GetLocationsForEvent(ctx context.Context, eventID s
 	return locations, nil
 }
 
+func (client *defaultClient) GetEventByID(ctx context.Context, eventID string) (Event, error) {
+	if eventID == "" {
+		return Event{}, errors.New("event id is required")
+	}
+
+	getURL, err := url.JoinPath(client.baseURL, "check-ins", "v2", "events", eventID)
+	if err != nil {
+		return Event{}, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, getURL, nil)
+	if err != nil {
+		return Event{}, err
+	}
+
+	req.SetBasicAuth(client.clientID, client.secret)
+	req.Header.Set("Accept", "application/vnd.api+json")
+
+	resp, err := client.httpClient.Do(req)
+	if err != nil {
+		return Event{}, err
+	}
+
+	defer resp.Body.Close()
+
+	by, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return Event{}, err
+	}
+
+	if resp.StatusCode >= http.StatusInternalServerError {
+		return Event{}, &ServerError{
+			statusCode: resp.StatusCode,
+			errMsg:     string(by),
+		}
+	}
+	if resp.StatusCode >= http.StatusBadRequest {
+		return Event{}, &ClientError{
+			statusCode: resp.StatusCode,
+			errMsg:     string(by),
+		}
+	}
+
+	var decoded eventByIDResponse
+	if err := json.Unmarshal(by, &decoded); err != nil {
+		return Event{}, err
+	}
+
+	return Event{
+		ID:   decoded.Data.ID,
+		Name: decoded.Data.Attributes.Name,
+	}, nil
+}
+
 func (client *defaultClient) GetCheckoutsForLocation(ctx context.Context, locationID string, checkedOutOnOrAfter time.Time, limit int) ([]Checkout, error) {
 	if checkedOutOnOrAfter.IsZero() && limit == 0 {
 		return nil, errors.New("checked_out_on_or_after and limit cannot both be empty")
@@ -307,65 +361,69 @@ func (client *defaultClient) GetLocation(ctx context.Context, locationID string,
 	return locations, nil
 }
 
-func (client *defaultClient) GetEvents(ctx context.Context) ([]Event, error) {
+func (client *defaultClient) GetEvents(ctx context.Context) ([]Event, string, error) {
 	getURL, err := url.JoinPath(client.baseURL, "check-ins", "v2", "events")
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	q := url.Values{}
 	q.Add("filter", "not_archived")
 	getURL += "?" + q.Encode()
 
-	var events []Event
+	return client.getEventsByURL(ctx, getURL)
+}
 
-	for getURL != "" {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, getURL, nil)
-		if err != nil {
-			return nil, err
-		}
+func (client *defaultClient) GetEventsFromNextURL(ctx context.Context, nextURL string) ([]Event, string, error) {
+	if nextURL == "" {
+		return nil, "", errors.New("next url is required")
+	}
 
-		req.SetBasicAuth(client.clientID, client.secret)
-		req.Header.Set("Accept", "application/vnd.api+json")
+	return client.getEventsByURL(ctx, nextURL)
+}
 
-		resp, err := client.httpClient.Do(req)
-		if err != nil {
-			return nil, err
-		}
+func (client *defaultClient) getEventsByURL(ctx context.Context, getURL string) ([]Event, string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, getURL, nil)
+	if err != nil {
+		return nil, "", err
+	}
 
-		defer resp.Body.Close()
+	req.SetBasicAuth(client.clientID, client.secret)
+	req.Header.Set("Accept", "application/vnd.api+json")
 
-		by, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return nil, err
-		}
+	resp, err := client.httpClient.Do(req)
+	if err != nil {
+		return nil, "", err
+	}
 
-		if resp.StatusCode >= http.StatusBadRequest {
-			return nil, &ClientError{
-				statusCode: resp.StatusCode,
-				errMsg:     string(by),
-			}
-		}
+	defer resp.Body.Close()
 
-		var decoded eventsResponse
-		if err := json.Unmarshal(by, &decoded); err != nil {
-			return nil, err
-		}
+	by, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, "", err
+	}
 
-		for _, data := range decoded.Data {
-			events = append(events, Event{
-				ID:   data.ID,
-				Name: data.Attributes.Name,
-			})
-		}
-
-		getURL = decoded.Links.Next
-		if getURL == "" {
-			break
+	if resp.StatusCode >= http.StatusBadRequest {
+		return nil, "", &ClientError{
+			statusCode: resp.StatusCode,
+			errMsg:     string(by),
 		}
 	}
 
-	return events, nil
+	var decoded eventsResponse
+	if err := json.Unmarshal(by, &decoded); err != nil {
+		return nil, "", err
+	}
+
+	events := make([]Event, 0, len(decoded.Data))
+	for _, data := range decoded.Data {
+		events = append(events, Event{
+			ID:   data.ID,
+			Name: data.Attributes.Name,
+		})
+	}
+
+	return events, decoded.Links.Next, nil
 }
 
 func getFilteredResults(decoded checkinResponse, checkedOutOnOrAfter time.Time, limit int) (data []Checkout, done bool) {

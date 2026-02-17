@@ -49,10 +49,10 @@ type Repo interface {
 }
 
 type sqliteRepo struct {
-	db *sql.DB
+	db repo.DBTX
 }
 
-func NewRepo(db *sql.DB) Repo {
+func NewRepo(db repo.DBTX) Repo {
 	return &sqliteRepo{
 		db: db,
 	}

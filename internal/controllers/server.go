@@ -16,6 +16,7 @@ import (
 	"kids-checkin/internal/controllers/locationgroupv1"
 	"kids-checkin/internal/controllers/locationv1"
 	"kids-checkin/internal/controllers/manualcheckinv1"
+	"kids-checkin/internal/controllers/planningcenterv1"
 	"kids-checkin/internal/db"
 	"kids-checkin/internal/web/static"
 
@@ -92,7 +93,7 @@ func StartServer(port int, dbFilepath string) error {
 		TimeFormat: "2006-01-02T15:04:05Z",
 	}))
 
-	registerRoutes(app, database, store)
+	registerRoutes(app, database, store, storage)
 
 	app.Get("favicon.ico", func(c *fiber.Ctx) error {
 		f, err := static.EmbeddedFS.Open("img/favicon.ico")
@@ -125,7 +126,7 @@ func StartServer(port int, dbFilepath string) error {
 	return nil
 }
 
-func registerRoutes(app *fiber.App, db *sql.DB, sessionStore *session.Store) {
+func registerRoutes(app *fiber.App, db *sql.DB, sessionStore *session.Store, paginationStore planningcenterv1.PaginationStore) {
 	app.Get("/", func(c *fiber.Ctx) error {
 		f, err := static.EmbeddedFS.Open("pages/home/index.html")
 		if err != nil {
@@ -165,6 +166,9 @@ func registerRoutes(app *fiber.App, db *sql.DB, sessionStore *session.Store) {
 
 	eventV1Controller := eventv1.NewController(db, sessionStore)
 	eventV1Controller.RegisterRoutes(app)
+
+	planningCenterV1Controller := planningcenterv1.NewController(sessionStore, paginationStore)
+	planningCenterV1Controller.RegisterRoutes(app)
 
 	adminController := admin.NewController(sessionStore)
 	adminController.RegisterRoutes(app)
