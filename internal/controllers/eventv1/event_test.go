@@ -95,7 +95,7 @@ func TestController_PostCreateEvent(t *testing.T) {
 		}, nil
 	}
 
-	req := httptest.NewRequest("POST", "/admin/api/events", bytes.NewReader(body))
+	req := httptest.NewRequest("POST", "/v1/admin/events", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := app.Test(req)
 	require.NoError(t, err)
@@ -120,7 +120,7 @@ func TestController_PostCreateEvent_MissingPlanningCenterID(t *testing.T) {
 	controller.client = &planningcenter.MockClient{}
 	controller.RegisterRoutes(app)
 
-	req := httptest.NewRequest("POST", "/admin/api/events", bytes.NewReader([]byte(`{}`)))
+	req := httptest.NewRequest("POST", "/v1/admin/events", bytes.NewReader([]byte(`{}`)))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := app.Test(req)
 	require.NoError(t, err)
@@ -162,7 +162,7 @@ func TestController_PostCreateEvent_Conflict(t *testing.T) {
 		return []planningcenter.Location{{ID: "loc-1", Name: "Room A"}}, nil
 	}
 
-	req := httptest.NewRequest("POST", "/admin/api/events", bytes.NewReader(body))
+	req := httptest.NewRequest("POST", "/v1/admin/events", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := app.Test(req)
 	require.NoError(t, err)
@@ -188,7 +188,7 @@ func TestController_GetEventByPlanningCenterID(t *testing.T) {
 	insertedID, _ := res.LastInsertId()
 	require.NotZero(t, insertedID)
 
-	req := httptest.NewRequest("GET", "/admin/api/events/lookup?planning_center_id=pc_evt_22", nil)
+	req := httptest.NewRequest("GET", "/v1/admin/events/lookup?planning_center_id=pc_evt_22", nil)
 	resp, err := app.Test(req)
 	require.NoError(t, err)
 	require.Equal(t, fiber.StatusOK, resp.StatusCode)
@@ -201,14 +201,14 @@ func TestController_GetEventByPlanningCenterID(t *testing.T) {
 	assert.Equal(t, "pc_evt_22", payload.PlanningCenterID)
 
 	t.Run("not found", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/admin/api/events/lookup?planning_center_id=missing", nil)
+		req := httptest.NewRequest("GET", "/v1/admin/events/lookup?planning_center_id=missing", nil)
 		resp, err := app.Test(req)
 		require.NoError(t, err)
 		require.Equal(t, fiber.StatusNotFound, resp.StatusCode)
 	})
 
 	t.Run("missing query", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/admin/api/events/lookup", nil)
+		req := httptest.NewRequest("GET", "/v1/admin/events/lookup", nil)
 		resp, err := app.Test(req)
 		require.NoError(t, err)
 		require.Equal(t, fiber.StatusBadRequest, resp.StatusCode)

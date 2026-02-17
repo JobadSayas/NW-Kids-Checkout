@@ -40,7 +40,7 @@ func (controller *Controller) RegisterRoutes(app *fiber.App) {
 
 	eventGroup.Get("/:id", controller.GetEventByID)
 
-	adminGroup := app.Group("/admin/api/events")
+	adminGroup := app.Group("/v1/admin/events")
 	adminGroup.Use(middleware.AuthRequired(controller.sessionStore, "admin"))
 	adminGroup.Get("/lookup", controller.GetEventByPlanningCenterID)
 	adminGroup.Post("", controller.PostCreateEvent)

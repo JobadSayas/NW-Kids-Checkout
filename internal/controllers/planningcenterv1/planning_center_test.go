@@ -81,7 +81,7 @@ func TestController_GetEvents_WithCursor(t *testing.T) {
 		return []planningcenter.Event{{ID: "evt-2", Name: "Second"}}, "", nil
 	}
 
-	req := httptest.NewRequest("GET", "/admin/api/planningcenter/events?cursor="+cursor, nil)
+	req := httptest.NewRequest("GET", "/v1/admin/planningcenter/events?cursor="+cursor, nil)
 	resp, err := app.Test(req)
 	require.NoError(t, err)
 	require.Equal(t, fiber.StatusOK, resp.StatusCode)
@@ -109,7 +109,7 @@ func TestController_GetEvents_NewCursor(t *testing.T) {
 		return []planningcenter.Event{{ID: "evt-1", Name: "First"}}, nextURL, nil
 	}
 
-	req := httptest.NewRequest("GET", "/admin/api/planningcenter/events", nil)
+	req := httptest.NewRequest("GET", "/v1/admin/planningcenter/events", nil)
 	resp, err := app.Test(req)
 	require.NoError(t, err)
 	require.Equal(t, fiber.StatusOK, resp.StatusCode)
@@ -123,7 +123,7 @@ func TestController_GetEvents_NewCursor(t *testing.T) {
 
 	parsed, parseErr := url.Parse(payload.Links.Next)
 	require.NoError(t, parseErr)
-	assert.Equal(t, "/admin/api/planningcenter/events", parsed.Path)
+	assert.Equal(t, "/v1/admin/planningcenter/events", parsed.Path)
 	queryCursor := parsed.Query().Get("cursor")
 	require.NotEmpty(t, queryCursor)
 	stored, getErr := paginationStore.Get(eventCursorPrefix + queryCursor)
@@ -140,7 +140,7 @@ func TestController_GetEvents_InvalidCursor(t *testing.T) {
 	controller.client = &planningcenter.MockClient{}
 	controller.RegisterRoutes(app)
 
-	req := httptest.NewRequest("GET", "/admin/api/planningcenter/events?cursor=missing", nil)
+	req := httptest.NewRequest("GET", "/v1/admin/planningcenter/events?cursor=missing", nil)
 	resp, err := app.Test(req)
 	require.NoError(t, err)
 	assert.Equal(t, fiber.StatusBadRequest, resp.StatusCode)
@@ -164,7 +164,7 @@ func TestController_GetLocationsForEvent(t *testing.T) {
 		}, nil
 	}
 
-	req := httptest.NewRequest("GET", "/admin/api/planningcenter/events/evt-9/locations", nil)
+	req := httptest.NewRequest("GET", "/v1/admin/planningcenter/events/evt-9/locations", nil)
 	resp, err := app.Test(req)
 	require.NoError(t, err)
 	require.Equal(t, fiber.StatusOK, resp.StatusCode)

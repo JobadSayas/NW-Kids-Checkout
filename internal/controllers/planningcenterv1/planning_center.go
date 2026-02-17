@@ -37,7 +37,7 @@ func NewController(sessionStore session.Storer, paginationStore PaginationStore)
 }
 
 func (controller *Controller) RegisterRoutes(app *fiber.App) {
-	planningCenterGroup := app.Group("/admin/api/planningcenter")
+	planningCenterGroup := app.Group("/v1/admin/planningcenter")
 	planningCenterGroup.Use(middleware.AuthRequired(controller.sessionStore, "admin"))
 
 	planningCenterGroup.Get("/events", controller.GetEvents)
@@ -74,7 +74,7 @@ func (controller *Controller) GetEvents(c *fiber.Ctx) error {
 			slog.WarnContext(c.Context(), "failed to store planning center cursor", slog.String("error", storeErr.Error()))
 			return storeErr
 		}
-		responseNext = "/admin/api/planningcenter/events?cursor=" + url.QueryEscape(cursorToken)
+		responseNext = "/v1/admin/planningcenter/events?cursor=" + url.QueryEscape(cursorToken)
 	}
 
 	slog.InfoContext(c.Context(), "fetched planning center events", slog.Int("events_count", len(events)), slog.Bool("has_next", nextURL != ""))

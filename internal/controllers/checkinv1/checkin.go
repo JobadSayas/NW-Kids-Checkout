@@ -58,7 +58,6 @@ func (controller *Controller) RegisterRoutes(app *fiber.App) {
 
 	checkinGroup.Get("/checkouts", controller.Checkouts)
 	checkinGroup.Patch("/:planning_center_id/checked_out_confirmed", controller.PatchCheckedOutConfirmed)
-	checkinGroup.Patch("/manual-checkins/:public_id/checked_out_confirmed", controller.PatchManualCheckedOutConfirmed)
 }
 
 func (controller *Controller) Checkouts(c *fiber.Ctx) error {
@@ -250,58 +249,6 @@ func (controller *Controller) PatchCheckedOutConfirmed(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(repoCheckinToOutput(updated))
-}
-
-func (controller *Controller) PatchManualCheckedOutConfirmed(c *fiber.Ctx) error {
-	publicID := c.Params("public_id")
-	if publicID == "" {
-		return fiber.NewError(fiber.StatusBadRequest, "public_id is required")
-	}
-
-	contentType := c.Get("Content-Type")
-	if contentType == "" {
-		return fiber.NewError(fiber.StatusUnsupportedMediaType, "unsupported media type")
-	}
-	mediaType, _, err := mime.ParseMediaType(contentType)
-	if err != nil || mediaType != fiber.MIMEApplicationJSON {
-		return fiber.NewError(fiber.StatusUnsupportedMediaType, "unsupported media type")
-	}
-
-	type confirmedPayload struct {
-		Confirmed *bool `json:"confirmed"`
-	}
-
-	var payload confirmedPayload
-	decoder := json.NewDecoder(bytes.NewReader(c.Body()))
-	if err := decoder.Decode(&payload); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "invalid JSON")
-	}
-
-	if payload.Confirmed == nil {
-		return fiber.NewError(fiber.StatusBadRequest, "invalid JSON")
-	}
-	confirmed := *payload.Confirmed
-
-	manualCheckins, err := controller.manualRepo.ListManualCheckins(c.Context(), manualcheckin.Filter{
-		PublicID: publicID,
-		Limit:    1,
-	})
-	if err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
-	}
-	if len(manualCheckins) == 0 {
-		return fiber.NewError(fiber.StatusNotFound, "manual checkin not found")
-	}
-
-	updated, err := controller.manualRepo.SetManualCheckedOutConfirmedAt(c.Context(), manualCheckins[0].ID, confirmed)
-	if err != nil {
-		if errors.Is(err, repo.ErrNotFound) {
-			return fiber.NewError(fiber.StatusNotFound, "manual checkin not found")
-		}
-		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
-	}
-
-	return c.JSON(repoManualCheckinToOutput(updated))
 }
 
 func buildFilter(c *fiber.Ctx) (checkin.Filter, error) {

@@ -161,6 +161,88 @@ func TestController_GetManualCheckins(t *testing.T) {
 	assert.Equal(t, "manual", payload[1].Source)
 }
 
+func TestController_PatchManualCheckedOutConfirmed(t *testing.T) {
+	app, store := setupAuthedApp()
+
+	testDB, cleanup, err := db.PrepareTestDB()
+	require.NoError(t, err, "Failed to prepare test DB")
+	t.Cleanup(cleanup)
+
+	controller := NewController(testDB, store)
+	controller.RegisterRoutes(app)
+
+	_, err = squirrel.Delete("manual_checkins").RunWith(testDB).ExecContext(t.Context())
+	require.NoError(t, err)
+
+	manualRepo := manualcheckin.NewRepo(testDB)
+	created, err := manualRepo.CreateManualCheckin(t.Context(), manualcheckin.ManualCheckin{
+		PublicID:     "manual-public-1",
+		FirstName:    "sam",
+		LastName:     "alpha",
+		CheckedOutAt: time.Date(2022, 1, 1, 12, 0, 0, 0, time.UTC),
+	})
+	require.NoError(t, err)
+
+	t.Run("success", func(t *testing.T) {
+		req := httptest.NewRequest("PATCH", "/v1/checkins/manual-checkins/manual-public-1/checked_out_confirmed", bytes.NewBufferString("{\"confirmed\":true}"))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		require.Equal(t, fiber.StatusOK, resp.StatusCode)
+
+		var payload Checkin
+		err = json.NewDecoder(resp.Body).Decode(&payload)
+		require.NoError(t, err)
+		require.NotNil(t, payload.CheckedOutConfirmedAt)
+		assert.Equal(t, created.PublicID, payload.PublicID)
+		assert.WithinDuration(t, time.Now().UTC(), *payload.CheckedOutConfirmedAt, 2*time.Second)
+
+		manualCheckins, err := manualRepo.ListManualCheckins(t.Context(), manualcheckin.Filter{PublicID: created.PublicID})
+		require.NoError(t, err)
+		require.Len(t, manualCheckins, 1)
+		assert.WithinDuration(t, time.Now().UTC(), manualCheckins[0].CheckedOutConfirmedAt, 2*time.Second)
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		req := httptest.NewRequest("PATCH", "/v1/checkins/manual-checkins/missing/checked_out_confirmed", bytes.NewBufferString("{\"confirmed\":true}"))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		assert.Equal(t, fiber.StatusNotFound, resp.StatusCode)
+	})
+
+	t.Run("missing content type", func(t *testing.T) {
+		req := httptest.NewRequest("PATCH", "/v1/checkins/manual-checkins/manual-public-1/checked_out_confirmed", bytes.NewBufferString("{\"confirmed\":true}"))
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		assert.Equal(t, fiber.StatusUnsupportedMediaType, resp.StatusCode)
+	})
+
+	t.Run("unsupported content type", func(t *testing.T) {
+		req := httptest.NewRequest("PATCH", "/v1/checkins/manual-checkins/manual-public-1/checked_out_confirmed", bytes.NewBufferString("{\"confirmed\":true}"))
+		req.Header.Set("Content-Type", "text/plain")
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		assert.Equal(t, fiber.StatusUnsupportedMediaType, resp.StatusCode)
+	})
+
+	t.Run("invalid json", func(t *testing.T) {
+		req := httptest.NewRequest("PATCH", "/v1/checkins/manual-checkins/manual-public-1/checked_out_confirmed", bytes.NewBufferString("{bad"))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		assert.Equal(t, fiber.StatusBadRequest, resp.StatusCode)
+	})
+
+	t.Run("missing confirmed field", func(t *testing.T) {
+		req := httptest.NewRequest("PATCH", "/v1/checkins/manual-checkins/manual-public-1/checked_out_confirmed", bytes.NewBufferString("{}"))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		assert.Equal(t, fiber.StatusBadRequest, resp.StatusCode)
+	})
+}
+
 func TestController_PatchManualCheckedOut(t *testing.T) {
 	app, store := setupAuthedApp()
 

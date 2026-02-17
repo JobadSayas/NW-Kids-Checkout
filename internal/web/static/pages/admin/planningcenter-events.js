@@ -6,7 +6,7 @@ const prevButton = document.getElementById('prev-page');
 const nextButton = document.getElementById('next-page');
 
 const previousPages = [];
-let currentPath = '/admin/api/planningcenter/events';
+let currentPath = '/v1/admin/planningcenter/events';
 let nextURL = '';
 let isLoading = false;
 
@@ -47,7 +47,7 @@ function setLoadingState(loading) {
     nextButton.disabled = loading || !nextURL;
 }
 
-async function loadEvents(path = '/admin/api/planningcenter/events') {
+async function loadEvents(path = '/v1/admin/planningcenter/events') {
     clearPageStatus();
     setLoadingState(true);
     try {

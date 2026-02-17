@@ -39,7 +39,7 @@ async function fetchJson(path, options = {}) {
 }
 
 async function createEvent(eventId) {
-    const response = await fetch(`${API_URL}/admin/api/events`, {
+    const response = await fetch(`${API_URL}/v1/admin/events`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
@@ -64,7 +64,7 @@ async function createEvent(eventId) {
 }
 
 async function getExistingEvent(eventId) {
-    const response = await fetch(`${API_URL}/admin/api/events/lookup?planning_center_id=${encodeURIComponent(eventId)}`);
+    const response = await fetch(`${API_URL}/v1/admin/events/lookup?planning_center_id=${encodeURIComponent(eventId)}`);
     if (response.status === 404) {
         return null;
     }
@@ -97,7 +97,7 @@ function getParentName(locationsById, parentId) {
 async function loadLocations(eventId) {
     clearPageStatus();
     try {
-        const locations = await fetchJson(`/admin/api/planningcenter/events/${eventId}/locations`);
+        const locations = await fetchJson(`/v1/admin/planningcenter/events/${eventId}/locations`);
         renderLocations(locations || []);
     } catch (error) {
         setPageStatus(`Failed to load locations: ${error.message}`, 'error');
