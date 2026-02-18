@@ -59,14 +59,13 @@
     </div>
 
     <div class="hidden lg:block w-16 md:w-24"></div>
-    </div>
 </header>
 
 <!-- Main Content -->
 <div class="relative z-10 min-h-screen flex flex-col lg:h-screen lg:flex-row">
     <!-- Left Panel - Currently Called (Desktop: 8/12, Mobile: full width) -->
     <div class="lg:w-8/12 lg:h-full flex items-center px-6 pt-1 pb-5 lg:py-0 flex-1 lg:flex-none">
-        <div class="w-full">
+        <div class="w-full" id="current-child-card">
             <!-- Name -->
             <div id="current-child-name" class="font-bold text-4xl lg:text-6xl lg:text-7xl text-gray-800 mb-1 lg:mb-3">
                 Loading...
@@ -110,6 +109,7 @@
     </div>
 </div>
 
+<script src="/static/js/morphdom-umd.min.js"></script>
 <script src="/static/pages/checkoutsv1/checkouts.js?v=dev"></script>
 </body>
 </html>
