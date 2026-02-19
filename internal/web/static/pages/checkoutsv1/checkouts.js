@@ -30,10 +30,11 @@ function getManualCheckinStarMarkup(source) {
 
 function getChildId(child) {
     if (!child) return '';
-    if (child.source === 'manual' && child.public_id) return `manual:${child.public_id}`;
+    if (child.source === 'manual') return child.public_id ? `manual:${child.public_id}` : '';
+    if (child.source === 'planning_center') return child.planning_center_id ? `pc:${child.planning_center_id}` : '';
     if (child.planning_center_id) return `pc:${child.planning_center_id}`;
     if (child.public_id) return `public:${child.public_id}`;
-    return `row:${child.first_name || ''}-${child.last_name || ''}-${child.checked_out_at || ''}`;
+    return '';
 }
 
 function normalizeCheckoutsResponse(data) {
