@@ -11,6 +11,8 @@ const manualImmediateCheckout = document.getElementById('manual-immediate-checko
 const manualSubmitButton = document.getElementById('manual-checkin-submit');
 
 const DEFAULT_CHECKED_OUT_AFTER = '-12h';
+const MANUAL_CHECKINS_REFRESH_INTERVAL_MS = 5000;
+let manualCheckinsController = null;
 
 function setPageStatus(message, tone = 'info') {
     pageStatus.classList.remove('hidden');
@@ -147,11 +149,19 @@ function renderManualCheckins(checkins) {
 
 async function loadManualCheckins() {
     clearPageStatus();
+    if (manualCheckinsController) {
+        manualCheckinsController.abort();
+    }
+    const controller = new AbortController();
+    manualCheckinsController = controller;
     try {
         const query = buildManualCheckinsQuery();
-        const checkins = await fetchJson(`/v1/checkins/manual-checkins?${query}`);
+        const checkins = await fetchJson(`/v1/checkins/manual-checkins?${query}`, {
+            signal: controller.signal
+        });
         renderManualCheckins(Array.isArray(checkins) ? checkins : []);
     } catch (error) {
+        if (error?.name === 'AbortError') return;
         setPageStatus(`Failed to load manual check-ins: ${error.message}`, 'error');
         if (manualCheckinsBody) {
             manualCheckinsBody.innerHTML = `
@@ -159,6 +169,10 @@ async function loadManualCheckins() {
                     <td class="px-4 py-6 text-center text-slate-500" colspan="4">Unable to load manual check-ins.</td>
                 </tr>
             `;
+        }
+    } finally {
+        if (manualCheckinsController === controller) {
+            manualCheckinsController = null;
         }
     }
 }
@@ -262,4 +276,5 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     loadManualCheckins();
+    setInterval(loadManualCheckins, MANUAL_CHECKINS_REFRESH_INTERVAL_MS);
 });
