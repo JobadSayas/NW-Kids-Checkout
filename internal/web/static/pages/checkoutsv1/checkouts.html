@@ -40,14 +40,14 @@
 
 <body class="min-h-screen overflow-y-auto bg-white lg:h-screen lg:overflow-hidden">
 <!-- Background images -->
-<div class="fixed inset-0 z-0 overflow-hidden">
+<div class="fixed inset-0 z-0 overflow-hidden pointer-events-none">
     <img src="/static/img/bg-left.svg" alt=""
          class="absolute left-0 bottom-0 h-[300px] w-auto m:h-auto object-cover object-bottom lg:h-auto lg:w-[100%] z-10">
     <img src="/static/img/bg-right.svg" alt=""
          class="absolute right-0 bottom-0 h-[200px] w-auto m:h-auto object-cover object-bottom lg:h-auto lg:w-[40%] z-0">
 </div>
 
-<header class="flex justify-between items-center w-full z-20 px-6 py-4 lg:fixed lg:w-8/12">
+<header class="relative flex justify-between items-center w-full z-20 px-6 py-4 lg:fixed lg:w-8/12">
     <div class="flex justify-between items-center">
         <a href="/">
             <img src="/static/img/NWKids-logo.svg" alt="NWKids Logo" class="h-16 md:h-24 w-auto">
@@ -62,9 +62,9 @@
 </header>
 
 <!-- Main Content -->
-<div class="relative z-10 min-h-screen flex flex-col lg:h-screen lg:flex-row">
+<div class="relative z-10 min-h-screen flex flex-col lg:h-screen lg:flex-row lg:pt-28">
     <!-- Left Panel - Currently Called (Desktop: 8/12, Mobile: full width) -->
-    <div class="lg:w-8/12 lg:h-full flex items-center px-6 pt-1 pb-5 lg:py-0 flex-1 lg:flex-none">
+    <div class="lg:w-8/12 lg:h-full flex items-start lg:items-center px-6 pt-1 pb-5 lg:py-0 flex-none lg:flex-none">
         <div class="w-full" id="current-child-card">
             <!-- Name -->
             <div id="current-child-name" class="font-bold text-4xl lg:text-6xl lg:text-7xl text-gray-800 mb-1 lg:mb-3">
