@@ -213,8 +213,8 @@ var getLookBackTime = sync.OnceValue(func() time.Duration {
 		return defaultLookBackTime
 	}
 
-	if lb <= 0 {
-		slog.Warn("CHECKOUT_FETCHER_LOOKBACK_TIME must be greater than 0, using default", slog.String("env_var", lbStr), slog.Duration("default", defaultLookBackTime))
+	if lb > 0 {
+		slog.Warn("CHECKOUT_FETCHER_LOOKBACK_TIME must not be greater than 0, using default", slog.String("env_var", lbStr), slog.Duration("default", defaultLookBackTime))
 		return defaultLookBackTime
 	}
 

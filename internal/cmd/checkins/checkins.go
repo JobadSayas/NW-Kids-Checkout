@@ -7,6 +7,7 @@ import (
 
 	"kids-checkin/internal/db"
 	"kids-checkin/internal/repo/checkin"
+	"kids-checkin/internal/repo/manualcheckin"
 
 	"github.com/urfave/cli/v3"
 )
@@ -45,13 +46,20 @@ func deleteOlderThanCmd(ctx context.Context, cmd *cli.Command) error {
 
 	defer database.Close()
 
-	repo := checkin.NewRepo(database)
-	deletedCount, err := repo.RemoveOldCheckins(ctx, time.Now().Add(olderThan))
+	checkinRepo := checkin.NewRepo(database)
+	deletedCount, err := checkinRepo.RemoveOldCheckins(ctx, time.Now().Add(olderThan))
 	if err != nil {
 		return cli.Exit(err.Error(), 1)
 	}
 
 	slog.Info("deleted old checkins", slog.Int64("deleted_count", deletedCount), slog.Duration("older_than", olderThan))
+
+	manualCheckinRepo := manualcheckin.NewRepo(database)
+	deletedCount, err = manualCheckinRepo.RemoveOldManualCheckins(ctx, time.Now().Add(olderThan))
+	if err != nil {
+	}
+
+	slog.Info("deleted old manual checkins", slog.Int64("deleted_count", deletedCount), slog.Duration("older_than", olderThan))
 
 	return nil
 }
