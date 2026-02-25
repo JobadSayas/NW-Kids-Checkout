@@ -95,6 +95,30 @@ func StartServer(port int, dbFilepath string) error {
 
 	registerRoutes(app, database, store, storage)
 
+	app.Get("manifest.webmanifest", func(c *fiber.Ctx) error {
+		f, err := static.EmbeddedFS.Open("manifest.webmanifest")
+		if err != nil {
+			fmt.Println(err)
+			return fiber.ErrInternalServerError
+		}
+		defer f.Close()
+
+		c.Type("application/manifest+json")
+		return c.SendStream(f)
+	})
+
+	app.Get("apple-touch-icon.png", func(c *fiber.Ctx) error {
+		f, err := static.EmbeddedFS.Open("img/apple-touch-icon.png")
+		if err != nil {
+			fmt.Println(err)
+			return fiber.ErrInternalServerError
+		}
+		defer f.Close()
+
+		c.Type("image/png")
+		return c.SendStream(f)
+	})
+
 	app.Get("favicon.ico", func(c *fiber.Ctx) error {
 		f, err := static.EmbeddedFS.Open("img/favicon.ico")
 		if err != nil {
