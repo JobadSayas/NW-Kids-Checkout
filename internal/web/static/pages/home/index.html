@@ -48,24 +48,34 @@
     
     <!-- Main Content -->
     <div class="relative z-10 min-h-screen flex flex-col">
-        <div class="absolute top-6 right-6 flex items-center gap-3">
-            <div id="manual-checkins-link">
-                <a href="/manual-checkins" class="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:text-slate-900">
-                    Manual Check-Ins
-                    <span aria-hidden="true">→</span>
-                </a>
-            </div>
-            <div id="login-link" class="hidden">
-                <a href="/login?next=/" class="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:text-slate-900">
-                    Log In
-                    <span aria-hidden="true">→</span>
-                </a>
-            </div>
-            <div id="admin-link" class="hidden">
-                <a href="/admin" class="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:text-slate-900">
-                    Admin
-                    <span aria-hidden="true">→</span>
-                </a>
+        <div class="absolute top-6 right-6">
+            <div class="relative">
+                <button id="menu-button" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="kebab-menu" class="inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:border-slate-300 hover:text-slate-900">
+                    <span class="sr-only">Open menu</span>
+                    <svg aria-hidden="true" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                        <rect x="3" y="4" width="14" height="2" rx="1"></rect>
+                        <rect x="3" y="9" width="14" height="2" rx="1"></rect>
+                        <rect x="3" y="14" width="14" height="2" rx="1"></rect>
+                    </svg>
+                </button>
+                <div id="kebab-menu" class="absolute right-0 mt-2 hidden w-56 rounded-xl border border-slate-200 bg-white py-2 text-sm text-slate-700 shadow-lg">
+                    <a id="manual-checkins-link" href="/manual-checkins" class="flex items-center justify-between px-4 py-2 font-semibold transition hover:bg-slate-50 hover:text-slate-900">
+                        Manual Check-Ins
+                        <span aria-hidden="true">→</span>
+                    </a>
+                    <a id="login-link" href="/login?next=/" class="hidden flex items-center justify-between px-4 py-2 font-semibold transition hover:bg-slate-50 hover:text-slate-900">
+                        Log In
+                        <span aria-hidden="true">→</span>
+                    </a>
+                    <a id="admin-link" href="/admin" class="hidden flex items-center justify-between px-4 py-2 font-semibold transition hover:bg-slate-50 hover:text-slate-900">
+                        Admin
+                        <span aria-hidden="true">→</span>
+                    </a>
+                    <a id="logout-link" href="/logout" class="hidden flex items-center justify-between px-4 py-2 font-semibold transition hover:bg-slate-50 hover:text-slate-900">
+                        Log Out
+                        <span aria-hidden="true">→</span>
+                    </a>
+                </div>
             </div>
         </div>
         
@@ -136,20 +146,70 @@
     </div>
 
     <script>
+        function setupMenu() {
+            const menuButton = document.getElementById("menu-button");
+            const menu = document.getElementById("kebab-menu");
+
+            if (!menuButton || !menu) {
+                return;
+            }
+
+            function closeMenu() {
+                menu.classList.add("hidden");
+                menuButton.setAttribute("aria-expanded", "false");
+            }
+
+            function toggleMenu(event) {
+                event.stopPropagation();
+                const isOpen = !menu.classList.contains("hidden");
+                if (isOpen) {
+                    closeMenu();
+                    return;
+                }
+                menu.classList.remove("hidden");
+                menuButton.setAttribute("aria-expanded", "true");
+            }
+
+            menuButton.addEventListener("click", toggleMenu);
+            menu.querySelectorAll("a").forEach((link) => {
+                link.addEventListener("click", () => {
+                    closeMenu();
+                });
+            });
+            document.addEventListener("click", (event) => {
+                if (menu.classList.contains("hidden")) {
+                    return;
+                }
+                if (!menu.contains(event.target)) {
+                    closeMenu();
+                }
+            });
+            document.addEventListener("keydown", (event) => {
+                if (event.key === "Escape") {
+                    closeMenu();
+                }
+            });
+        }
+
         async function revealAdminLink() {
             try {
                 const response = await fetch("/api/session", { credentials: "same-origin" });
                 const loginLink = document.getElementById("login-link");
+                const logoutLink = document.getElementById("logout-link");
                 const adminLink = document.getElementById("admin-link");
                 if (!response.ok) {
                     loginLink.classList.remove("hidden");
+                    logoutLink.classList.add("hidden");
                     return;
                 }
                 const data = await response.json();
                 if (!data || !data.authenticated) {
                     loginLink.classList.remove("hidden");
+                    logoutLink.classList.add("hidden");
                     return;
                 }
+                loginLink.classList.add("hidden");
+                logoutLink.classList.remove("hidden");
                 if (data.role === "admin") {
                     adminLink.classList.remove("hidden");
                 }
@@ -158,6 +218,7 @@
             }
         }
 
+        setupMenu();
         revealAdminLink();
     </script>
 </body>
