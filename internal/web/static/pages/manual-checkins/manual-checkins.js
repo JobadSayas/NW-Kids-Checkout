@@ -112,11 +112,16 @@ function renderManualCheckins(checkins) {
     checkins.forEach(checkin => {
         const row = document.createElement('tr');
         const nameCell = document.createElement('td');
-        nameCell.className = 'px-4 py-4 font-medium text-slate-900';
-        nameCell.textContent = `${checkin.first_name || ''} ${checkin.last_name || ''}`.trim();
+        nameCell.className = 'px-4 py-4';
+        nameCell.dataset.label = 'Name';
+        const nameValue = document.createElement('span');
+        nameValue.className = 'font-medium text-slate-900';
+        nameValue.textContent = `${checkin.first_name || ''} ${checkin.last_name || ''}`.trim();
+        nameCell.appendChild(nameValue);
 
         const statusCell = document.createElement('td');
         statusCell.className = 'px-4 py-4';
+        statusCell.dataset.label = 'Status';
 
         const statusBadge = document.createElement('span');
         const isCheckedOut = Boolean(checkin.checked_out_at);
@@ -125,11 +130,16 @@ function renderManualCheckins(checkins) {
         statusCell.appendChild(statusBadge);
 
         const checkedOutCell = document.createElement('td');
-        checkedOutCell.className = 'px-4 py-4 text-slate-600';
-        checkedOutCell.textContent = formatCheckedOutAt(checkin.checked_out_at);
+        checkedOutCell.className = 'px-4 py-4';
+        checkedOutCell.dataset.label = 'Checked Out';
+        const checkedOutValue = document.createElement('span');
+        checkedOutValue.className = 'text-slate-600';
+        checkedOutValue.textContent = formatCheckedOutAt(checkin.checked_out_at);
+        checkedOutCell.appendChild(checkedOutValue);
 
         const actionCell = document.createElement('td');
         actionCell.className = 'px-4 py-4';
+        actionCell.dataset.label = 'Action';
         const actionButton = document.createElement('button');
         actionButton.className = 'inline-flex items-center rounded-md border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer';
         actionButton.textContent = isCheckedOut ? 'Undo Checkout' : 'Check Out';

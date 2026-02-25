@@ -9,8 +9,63 @@
     <link rel="manifest" href="/manifest.webmanifest"/>
     <link rel="stylesheet" href="/static/css/tailwind.css?v=dev">
     <style>
-        body {
-            font-family: system-ui, -apple-system, sans-serif;
+        @media (max-width: 640px) {
+            .manual-checkins-table thead {
+                display: none;
+            }
+
+            .manual-checkins-table,
+            .manual-checkins-table tbody,
+            .manual-checkins-table tr,
+            .manual-checkins-table td {
+                display: block;
+                width: 100%;
+            }
+
+            .manual-checkins-table tbody tr {
+                padding: 0.15rem 0;
+            }
+
+            .manual-checkins-table tbody tr + tr {
+                border-top: 1px solid #e2e8f0;
+            }
+
+            .manual-checkins-table td {
+                padding: 0.45rem 0.75rem;
+            }
+
+            .manual-checkins-table td[data-label] {
+                display: flex;
+                justify-content: space-between;
+                gap: 0.5rem;
+                align-items: center;
+                text-align: right;
+            }
+
+            .manual-checkins-table td[data-label]::before {
+                content: attr(data-label);
+                font-size: 0.65rem;
+                letter-spacing: 0.06em;
+                text-transform: uppercase;
+                color: #64748b;
+                font-weight: 600;
+                text-align: left;
+                flex: 1 1 40%;
+            }
+
+            .manual-checkins-table td[data-label] > span,
+            .manual-checkins-table td[data-label] > button {
+                margin-left: auto;
+                font-size: 0.85rem;
+            }
+
+            .manual-checkins-table td[data-label] > button {
+                padding: 0.35rem 0.75rem;
+            }
+
+            .manual-checkins-table td[colspan] {
+                text-align: center;
+            }
         }
     </style>
 </head>
@@ -37,7 +92,8 @@
     <div id="page-status" class="hidden mb-4 rounded-md border border-slate-200 bg-white px-4 py-3 text-sm"></div>
 
     <div class="rounded-xl border border-slate-200 bg-white shadow-sm">
-        <table class="min-w-full text-sm">
+        <div class="overflow-x-auto">
+            <table class="min-w-full text-sm manual-checkins-table">
             <thead class="sticky top-0 z-10 bg-slate-100 text-left text-xs uppercase tracking-wide text-slate-600 shadow-sm">
             <tr>
                 <th class="px-4 py-3">Name</th>
@@ -51,7 +107,8 @@
                 <td class="px-4 py-6 text-center text-slate-500" colspan="4">Loading manual check-ins...</td>
             </tr>
             </tbody>
-        </table>
+            </table>
+        </div>
     </div>
 </div>
 
