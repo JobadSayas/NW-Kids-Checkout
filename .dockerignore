@@ -8,6 +8,13 @@ vendor/
 # node
 node_modules
 
+# JS tests
+**/__tests__/
+**/*.test.js
+**/*.spec.js
+**/*.test.mjs
+**/*.spec.mjs
+
 # Build artifacts
 bin/kids-checkin
 
