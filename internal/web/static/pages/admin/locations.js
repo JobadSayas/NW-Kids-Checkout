@@ -165,7 +165,6 @@ function renderLocations() {
                 select.value = previousValue === null ? '' : String(previousValue);
             } else {
                 location.location_group_id = nextValue;
-                row.querySelector('.group-label').textContent = getLocationGroupName(nextValue);
             }
 
             select.disabled = false;

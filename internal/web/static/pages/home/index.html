@@ -197,6 +197,9 @@
                 const loginLink = document.getElementById("login-link");
                 const logoutLink = document.getElementById("logout-link");
                 const adminLink = document.getElementById("admin-link");
+                if (!loginLink || !logoutLink || !adminLink) {
+                    return;
+                }
                 if (!response.ok) {
                     loginLink.classList.remove("hidden");
                     logoutLink.classList.add("hidden");
