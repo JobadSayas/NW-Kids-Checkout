@@ -100,22 +100,25 @@ func (controller *Controller) PostCreateEvent(c *fiber.Ctx) error {
 		})
 	}
 
-	created, _, err := eventlocation.CreateEventWithLocations(c.Context(), controller.db, event.Event{
+	created, _, eventCreated, err := eventlocation.CreateEventWithLocations(c.Context(), controller.db, event.Event{
 		Name:             pcEvent.Name,
 		PlanningCenterID: pcEvent.ID,
 	}, locations)
 	if err != nil {
-		if errors.Is(err, event.ErrEventExists) {
-			slog.InfoContext(c.Context(), "event already exists", slog.String("planning_center_id", input.PlanningCenterID))
-			return fiber.NewError(fiber.StatusConflict, "event already exists")
-		}
-		slog.WarnContext(c.Context(), "failed to create event", slog.String("planning_center_id", input.PlanningCenterID), slog.String("error", err.Error()))
+		slog.WarnContext(c.Context(), "failed to sync event", slog.String("planning_center_id", input.PlanningCenterID), slog.String("error", err.Error()))
 		return err
 	}
 
-	slog.InfoContext(c.Context(), "created event from planning center", slog.Int64("event_id", created.ID), slog.String("planning_center_id", input.PlanningCenterID), slog.Int("locations_count", len(locations)))
+	status := fiber.StatusOK
+	logMsg := "synced event from planning center"
+	if eventCreated {
+		status = fiber.StatusCreated
+		logMsg = "created event from planning center"
+	}
 
-	return c.Status(fiber.StatusCreated).JSON(repoEventToOutput(created))
+	slog.InfoContext(c.Context(), logMsg, slog.Int64("event_id", created.ID), slog.String("planning_center_id", input.PlanningCenterID), slog.Int("locations_count", len(locations)))
+
+	return c.Status(status).JSON(repoEventToOutput(created))
 }
 
 func (controller *Controller) GetEventByPlanningCenterID(c *fiber.Ctx) error {

@@ -12,6 +12,9 @@ type MockRepo struct {
 	UpdateLocationFunc          func(ctx context.Context, location Location) error
 	UpdateLocationFuncCallCount int
 
+	DeleteLocationFunc          func(ctx context.Context, id int64) error
+	DeleteLocationFuncCallCount int
+
 	ListLocationGroupsFunc          func(ctx context.Context, filter LocationGroupFilter) ([]LocationGroup, error)
 	ListLocationGroupsFuncCallCount int
 }
@@ -38,6 +41,14 @@ func (repo *MockRepo) UpdateLocation(ctx context.Context, location Location) err
 		return repo.UpdateLocationFunc(ctx, location)
 	}
 	panic("MockRepo.UpdateLocation not implemented")
+}
+
+func (repo *MockRepo) DeleteLocation(ctx context.Context, id int64) error {
+	repo.DeleteLocationFuncCallCount++
+	if repo.DeleteLocationFunc != nil {
+		return repo.DeleteLocationFunc(ctx, id)
+	}
+	panic("MockRepo.DeleteLocation not implemented")
 }
 
 func (repo *MockRepo) ListLocationGroups(ctx context.Context, filter LocationGroupFilter) ([]LocationGroup, error) {

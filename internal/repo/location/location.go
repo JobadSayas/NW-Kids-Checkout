@@ -16,6 +16,7 @@ type LocationFilter struct {
 	ID               int64
 	PlanningCenterID string
 	LocationGroupID  int64
+	EventID          int64
 	AutoFetch        *bool
 	Name             string
 }
@@ -45,6 +46,7 @@ type Repo interface {
 	ListLocations(ctx context.Context, filter LocationFilter) ([]Location, error)
 	CreateLocation(ctx context.Context, location Location) (Location, error)
 	UpdateLocation(ctx context.Context, location Location) error
+	DeleteLocation(ctx context.Context, id int64) error
 	ListLocationGroups(ctx context.Context, filter LocationGroupFilter) ([]LocationGroup, error)
 }
 
@@ -134,6 +136,10 @@ func (r *sqliteRepo) ListLocations(ctx context.Context, filter LocationFilter) (
 
 	if filter.LocationGroupID > 0 {
 		builder = builder.Where(squirrel.Eq{"location_group_id": filter.LocationGroupID})
+	}
+
+	if filter.EventID > 0 {
+		builder = builder.Where(squirrel.Eq{"event_id": filter.EventID})
 	}
 
 	if filter.AutoFetch != nil {
@@ -234,6 +240,23 @@ func (r *sqliteRepo) UpdateLocation(ctx context.Context, location Location) erro
 		RunWith(r.db).
 		SetMap(setMap).
 		Where(squirrel.Eq{"id": location.ID})
+	res, err := builder.ExecContext(ctx)
+	if err != nil {
+		return err
+	}
+	rowsAffected, _ := res.RowsAffected()
+	if rowsAffected == 0 {
+		return repo.ErrNotFound
+	}
+	return nil
+}
+
+func (r *sqliteRepo) DeleteLocation(ctx context.Context, id int64) error {
+	builder := squirrel.
+		Delete("locations").
+		RunWith(r.db).
+		Where(squirrel.Eq{"id": id})
+
 	res, err := builder.ExecContext(ctx)
 	if err != nil {
 		return err

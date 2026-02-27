@@ -127,7 +127,7 @@ func TestController_PostCreateEvent_MissingPlanningCenterID(t *testing.T) {
 	require.Equal(t, fiber.StatusBadRequest, resp.StatusCode)
 }
 
-func TestController_PostCreateEvent_Conflict(t *testing.T) {
+func TestController_PostCreateEvent_SyncExisting(t *testing.T) {
 	app, store := setupAuthedApp()
 
 	testDB, cleanup, err := db.PrepareTestDB()
@@ -166,7 +166,13 @@ func TestController_PostCreateEvent_Conflict(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := app.Test(req)
 	require.NoError(t, err)
-	require.Equal(t, fiber.StatusConflict, resp.StatusCode)
+	require.Equal(t, fiber.StatusOK, resp.StatusCode)
+
+	var output Event
+	err = json.NewDecoder(resp.Body).Decode(&output)
+	require.NoError(t, err)
+	assert.Equal(t, "Kids Service", output.Name)
+	assert.Equal(t, payload.PlanningCenterID, output.PlanningCenterID)
 }
 
 func TestController_GetEventByPlanningCenterID(t *testing.T) {

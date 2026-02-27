@@ -122,8 +122,9 @@ function renderLocations() {
         return;
     }
 
+    const sortedLocations = NWKidsLocationSort.sortLocationsByPlanningCenterHierarchy(locations);
     locationsBody.innerHTML = '';
-    locations.forEach(location => {
+    sortedLocations.forEach(location => {
         const row = document.createElement('tr');
         row.dataset.locationId = location.id;
 
@@ -159,7 +160,7 @@ function renderLocations() {
 
             select.disabled = true;
 
-            const success = await updateLocation(location, { location_group_id: nextValue });
+            const success = await updateLocation(location, {location_group_id: nextValue});
             if (!success) {
                 select.value = previousValue === null ? '' : String(previousValue);
             } else {
@@ -176,7 +177,7 @@ function renderLocations() {
 
             toggle.disabled = true;
 
-            const success = await updateLocation(location, { auto_fetch: nextValue });
+            const success = await updateLocation(location, {auto_fetch: nextValue});
             if (!success) {
                 toggle.checked = previousValue;
             } else {

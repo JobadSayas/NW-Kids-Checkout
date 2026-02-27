@@ -99,3 +99,29 @@ func Test_sqliteRepo_CreateEvent(t *testing.T) {
 		assert.Equal(t, int64(1), count, "Expected exactly one event with planning center ID pc_evt_22")
 	})
 }
+
+func Test_sqliteRepo_UpdateEventName(t *testing.T) {
+	testDB, cleanup, err := db.PrepareTestDB()
+	require.NoError(t, err, "Failed to prepare test DB")
+	t.Cleanup(cleanup)
+
+	eventRepo := NewRepo(testDB)
+
+	res, err := squirrel.Insert("events").
+		RunWith(testDB).
+		Columns("name", "planning_center_id").
+		Values("Original Name", "pc_evt_99").
+		ExecContext(t.Context())
+	require.NoError(t, err)
+	insertedID, _ := res.LastInsertId()
+
+	err = eventRepo.UpdateEventName(t.Context(), insertedID, "Updated Name")
+	require.NoError(t, err)
+
+	loaded, err := eventRepo.GetEventByID(t.Context(), insertedID)
+	require.NoError(t, err)
+	assert.Equal(t, "Updated Name", loaded.Name)
+
+	err = eventRepo.UpdateEventName(t.Context(), 9999, "Missing")
+	assert.ErrorIs(t, err, repo.ErrNotFound)
+}

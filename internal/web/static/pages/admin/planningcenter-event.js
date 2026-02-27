@@ -38,7 +38,7 @@ async function fetchJson(path, options = {}) {
     return response.json();
 }
 
-async function createEvent(eventId) {
+async function syncEvent(eventId) {
     const response = await fetch(`${API_URL}/v1/admin/events`, {
         method: 'POST',
         headers: {
@@ -156,20 +156,25 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (addEventButton) {
+        addEventButton.textContent = 'Refresh event data';
         addEventButton.addEventListener('click', async () => {
             addEventButton.disabled = true;
             const originalLabel = addEventButton.textContent;
-            addEventButton.textContent = 'Adding event...';
+            addEventButton.textContent = 'Refreshing event...';
             clearPageStatus();
             try {
-                await createEvent(eventId);
-                window.location.assign('/admin/locations');
-            } catch (error) {
-                if (error.status === 409) {
-                    setPageStatus('Event already exists in the system.', 'error');
-                } else {
-                    setPageStatus(`Failed to add event: ${error.message}`, 'error');
+                const event = await syncEvent(eventId);
+                if (event && event.name) {
+                    eventNameLabel.textContent = event.name;
                 }
+                await loadLocations(eventId);
+                setPageStatus('Event data refreshed successfully.', 'success');
+                if (eventAddedStatus) {
+                    eventAddedStatus.classList.remove('hidden');
+                }
+            } catch (error) {
+                setPageStatus(`Failed to refresh event data: ${error.message}`, 'error');
+            } finally {
                 addEventButton.disabled = false;
                 addEventButton.textContent = originalLabel;
             }
@@ -180,11 +185,14 @@ document.addEventListener('DOMContentLoaded', () => {
         getExistingEvent(eventId)
             .then(event => {
                 console.log('[planningcenter-event] lookup result', { eventId, exists: Boolean(event), event });
-                if (event) {
-                    addEventButton.classList.add('hidden');
-                    addEventButton.classList.remove('inline-flex');
-                    if (eventAddedStatus) {
+                if (eventAddedStatus) {
+                    if (event) {
                         eventAddedStatus.classList.remove('hidden');
+                        if (event.name) {
+                            eventNameLabel.textContent = event.name;
+                        }
+                    } else {
+                        eventAddedStatus.classList.add('hidden');
                     }
                 }
             })

@@ -58,6 +58,7 @@ checkout-fetcher: build
 .PHONY: test
 test:
 	godotenv go test ./...
+	npm test
 
 .PHONY: db-seed
 db-seed:

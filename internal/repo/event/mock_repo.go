@@ -11,6 +11,9 @@ type MockRepo struct {
 
 	CreateEventFunc          func(ctx context.Context, event Event) (Event, error)
 	CreateEventFuncCallCount int
+
+	UpdateEventNameFunc          func(ctx context.Context, id int64, name string) error
+	UpdateEventNameFuncCallCount int
 }
 
 func (repo *MockRepo) GetEventByID(ctx context.Context, id int64) (Event, error) {
@@ -29,6 +32,15 @@ func (repo *MockRepo) CreateEvent(ctx context.Context, event Event) (Event, erro
 	}
 
 	panic("MockRepo.CreateEvent not implemented")
+}
+
+func (repo *MockRepo) UpdateEventName(ctx context.Context, id int64, name string) error {
+	repo.UpdateEventNameFuncCallCount++
+	if repo.UpdateEventNameFunc != nil {
+		return repo.UpdateEventNameFunc(ctx, id, name)
+	}
+
+	panic("MockRepo.UpdateEventName not implemented")
 }
 
 func (repo *MockRepo) GetEventByPlanningCenterID(ctx context.Context, planningCenterID string) (Event, error) {

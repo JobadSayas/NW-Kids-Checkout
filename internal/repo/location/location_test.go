@@ -40,6 +40,13 @@ func Test_sqliteRepo_ListLocations(t *testing.T) {
 		})
 		require.NoError(t, err)
 
+		_, err = s.CreateLocation(t.Context(), Location{
+			PlanningCenterID: "pcloc_5678",
+			EventID:          3,
+			Name:             "Other location",
+		})
+		require.NoError(t, err)
+
 		locations, err := s.ListLocations(t.Context(), LocationFilter{ID: location.ID})
 		require.NoError(t, err)
 		require.Len(t, locations, 1)
@@ -62,6 +69,10 @@ func Test_sqliteRepo_ListLocations(t *testing.T) {
 		assert.Len(t, locations, 1)
 
 		locations, err = s.ListLocations(t.Context(), LocationFilter{LocationGroupID: group.ID})
+		require.NoError(t, err)
+		assert.Len(t, locations, 1)
+
+		locations, err = s.ListLocations(t.Context(), LocationFilter{EventID: 2})
 		require.NoError(t, err)
 		assert.Len(t, locations, 1)
 
@@ -211,6 +222,30 @@ func Test_sqliteRepo_UpdateLocation_NotFound(t *testing.T) {
 		Name:             "Missing",
 		AutoFetch:        false,
 	})
+	assert.ErrorIs(t, err, repo.ErrNotFound)
+}
+
+func Test_sqliteRepo_DeleteLocation(t *testing.T) {
+	testDB, cleanup, err := db.PrepareTestDB()
+	require.NoError(t, err, "Failed to prepare test DB")
+	t.Cleanup(cleanup)
+	s := &sqliteRepo{db: testDB}
+
+	location, err := s.CreateLocation(t.Context(), Location{
+		PlanningCenterID: "pcloc_delete",
+		EventID:          1,
+		Name:             "Delete location",
+	})
+	require.NoError(t, err)
+
+	err = s.DeleteLocation(t.Context(), location.ID)
+	require.NoError(t, err)
+
+	locations, err := s.ListLocations(t.Context(), LocationFilter{ID: location.ID})
+	require.NoError(t, err)
+	assert.Empty(t, locations)
+
+	err = s.DeleteLocation(t.Context(), location.ID)
 	assert.ErrorIs(t, err, repo.ErrNotFound)
 }
 

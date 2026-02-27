@@ -22,6 +22,7 @@ type Repo interface {
 	GetEventByID(ctx context.Context, id int64) (Event, error)
 	GetEventByPlanningCenterID(ctx context.Context, planningCenterID string) (Event, error)
 	CreateEvent(ctx context.Context, event Event) (Event, error)
+	UpdateEventName(ctx context.Context, id int64, name string) error
 }
 
 type sqliteRepo struct {
@@ -99,4 +100,26 @@ func (r *sqliteRepo) CreateEvent(ctx context.Context, event Event) (Event, error
 
 	event.ID = insertedID
 	return event, nil
+}
+
+func (r *sqliteRepo) UpdateEventName(ctx context.Context, id int64, name string) error {
+	builder := squirrel.
+		Update("events").
+		RunWith(r.db).
+		Set("name", name).
+		Where(squirrel.Eq{"id": id})
+
+	res, err := builder.ExecContext(ctx)
+	if err != nil {
+		var sqliteErr sqlite3.Error
+		if errors.As(err, &sqliteErr) && (sqliteErr.ExtendedCode == sqlite3.ErrConstraintUnique || sqliteErr.ExtendedCode == sqlite3.ErrConstraintPrimaryKey) {
+			return ErrEventExists
+		}
+		return fmt.Errorf("updating event: %w", err)
+	}
+	rowsAffected, _ := res.RowsAffected()
+	if rowsAffected == 0 {
+		return repo.ErrNotFound
+	}
+	return nil
 }
