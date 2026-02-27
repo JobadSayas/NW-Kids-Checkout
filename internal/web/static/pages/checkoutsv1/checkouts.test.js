@@ -5,6 +5,20 @@ import { JSDOM } from 'jsdom';
 
 const scriptPath = path.resolve(process.cwd(), 'internal/web/static/pages/checkoutsv1/checkouts.js');
 const script = fs.readFileSync(scriptPath, 'utf8');
+const exposeInternals = `
+window.__test = {
+    setChildrenData: (value) => { childrenData = value; },
+    setDom: () => {
+        dom.currentChildCard = document.getElementById('current-child-card');
+        dom.previouslyCalledList = document.getElementById('previously-called-list');
+        dom.currentChildName = document.getElementById('current-child-name');
+        dom.currentChildCode = document.getElementById('current-child-code');
+        dom.currentChildTime = document.getElementById('current-child-time');
+    },
+    syncConfirmedStates: () => syncConfirmedStates(),
+    setConfirmationOverride: (childId, confirmed) => setConfirmationOverride(childId, confirmed)
+};
+`;
 
 function loadWindow({ html, url = 'http://localhost/', fetchImpl } = {}) {
     const dom = new JSDOM(html || '<!doctype html><html><body></body></html>', {
@@ -13,11 +27,12 @@ function loadWindow({ html, url = 'http://localhost/', fetchImpl } = {}) {
     });
     dom.window.fetch = fetchImpl || (async () => ({
         ok: true,
-        json: async () => []
+        json: async () => [],
+        text: async () => ''
     }));
     dom.window.setInterval = () => 0;
     dom.window.morphdom = () => {};
-    dom.window.eval(script);
+    dom.window.eval(`${script}\n${exposeInternals}`);
     return dom.window;
 }
 
@@ -82,6 +97,7 @@ describe('checkoutsv1/checkouts', () => {
         expect(html).toContain('/static/img/star.svg');
         expect(html).toContain('2 min ago');
         expect(html).toContain('data-confirmed-state="confirmed"');
+        expect(html).toContain('data-child-id="manual:pub-1"');
         expect(html).toContain('---');
     });
 
@@ -120,12 +136,58 @@ describe('checkoutsv1/checkouts', () => {
             }
         });
 
-        await window.fetchChildrenData();
+        const originalConsoleError = window.console.error;
+        window.console.error = () => {};
+
+        try {
+            await window.fetchChildrenData();
+        } finally {
+            window.console.error = originalConsoleError;
+        }
 
         expect(window.document.getElementById('current-child-name').textContent).toBe('Error loading data');
         expect(window.document.getElementById('current-child-code').textContent).toBe('----');
         expect(window.document.getElementById('current-child-time').textContent).toBe('0 min ago');
         expect(window.document.getElementById('previously-called-list').innerHTML)
             .toContain('Error loading data. Please try again.');
+    });
+
+    it('keeps confirmation overrides applied until data catches up', () => {
+        const html = `<!doctype html>
+            <html>
+                <body>
+                    <div id="current-child-card">
+                        <label data-confirmed-label data-confirmed-state="unconfirmed">
+                            <input type="checkbox" class="child-confirmed-checkbox" data-child-id="manual:pub-1">
+                        </label>
+                    </div>
+                    <div id="previously-called-list">
+                        <label data-confirmed-label data-confirmed-state="unconfirmed">
+                            <input type="checkbox" class="child-confirmed-checkbox" data-child-id="manual:pub-1">
+                        </label>
+                    </div>
+                </body>
+            </html>`;
+        const window = loadWindow({ html });
+
+        window.__test.setDom();
+        window.__test.setChildrenData([
+            {
+                source: 'manual',
+                public_id: 'pub-1',
+                checked_out_confirmed_at: null,
+                checked_out_at: '2024-01-01T00:00:00Z'
+            }
+        ]);
+
+        window.__test.setConfirmationOverride('manual:pub-1', true);
+        window.__test.syncConfirmedStates();
+
+        const checkboxes = window.document.querySelectorAll('.child-confirmed-checkbox');
+        checkboxes.forEach((checkbox) => {
+            expect(checkbox.checked).toBe(true);
+            const label = checkbox.closest('[data-confirmed-label]');
+            expect(label?.dataset.confirmedState).toBe('confirmed');
+        });
     });
 });

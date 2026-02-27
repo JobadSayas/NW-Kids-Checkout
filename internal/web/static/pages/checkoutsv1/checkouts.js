@@ -8,6 +8,8 @@ let childrenFetchController = null;
 let childTimeElementsById = new Map();
 let lastCurrentSignature = '';
 let lastListSignature = '';
+const CONFIRM_OVERRIDE_TTL_MS = 15000;
+const confirmationOverrides = new Map();
 const dom = {
     currentChildName: null,
     currentChildCode: null,
@@ -76,6 +78,30 @@ function isApiCallBlocked(callName) {
     return Boolean(API_CALL_BLOCKS[callName]);
 }
 
+function setConfirmationOverride(childId, confirmed) {
+    if (!childId) return;
+    confirmationOverrides.set(childId, {
+        confirmed: Boolean(confirmed),
+        timestamp: Date.now()
+    });
+}
+
+function clearConfirmationOverride(childId) {
+    if (!childId) return;
+    confirmationOverrides.delete(childId);
+}
+
+function getConfirmationOverride(childId) {
+    if (!childId) return null;
+    const entry = confirmationOverrides.get(childId);
+    if (!entry) return null;
+    if (Date.now() - entry.timestamp > CONFIRM_OVERRIDE_TTL_MS) {
+        confirmationOverrides.delete(childId);
+        return null;
+    }
+    return entry;
+}
+
 function getChildSignature(child) {
     if (!child) return 'empty';
     return [
@@ -96,7 +122,9 @@ function syncConfirmedStates() {
     childrenData.forEach((child) => {
         const childId = getChildId(child);
         if (!childId) return;
-        confirmedById.set(childId, Boolean(child.checked_out_confirmed_at));
+        const override = getConfirmationOverride(childId);
+        const confirmed = override ? override.confirmed : Boolean(child.checked_out_confirmed_at);
+        confirmedById.set(childId, confirmed);
     });
 
     const roots = [dom.currentChildCard, dom.previouslyCalledList].filter(Boolean);
@@ -126,12 +154,15 @@ function clampPreviouslyCalledScroll() {
 
 async function confirmCheckedOut(source, planningCenterId, publicId, checkbox, confirmed, previousConfirmed) {
     if (checkbox.dataset.confirming === 'true') return;
+    const childId = checkbox.dataset.childId || '';
+    setConfirmationOverride(childId, confirmed);
     let endpoint = '';
     if (source === 'manual') {
         if (!publicId) {
             console.error('Missing public_id for manual confirmation');
             checkbox.checked = previousConfirmed;
             updateConfirmedIcon(checkbox);
+            clearConfirmationOverride(childId);
             return;
         }
         endpoint = `${API_URL}/v1/checkins/manual-checkins/${encodeURIComponent(publicId)}/checked_out_confirmed`;
@@ -140,12 +171,14 @@ async function confirmCheckedOut(source, planningCenterId, publicId, checkbox, c
             console.warn(`Skipping confirmation for source: ${source}`);
             checkbox.checked = previousConfirmed;
             updateConfirmedIcon(checkbox);
+            clearConfirmationOverride(childId);
             return;
         }
         if (!planningCenterId) {
             console.error('Missing planning_center_id for confirmation');
             checkbox.checked = previousConfirmed;
             updateConfirmedIcon(checkbox);
+            clearConfirmationOverride(childId);
             return;
         }
         endpoint = `${API_URL}/v1/checkins/${encodeURIComponent(planningCenterId)}/checked_out_confirmed`;
@@ -167,6 +200,7 @@ async function confirmCheckedOut(source, planningCenterId, publicId, checkbox, c
         console.error('Error confirming checkout:', error);
         checkbox.checked = previousConfirmed;
         updateConfirmedIcon(checkbox);
+        clearConfirmationOverride(childId);
     } finally {
         delete checkbox.dataset.confirming;
     }
@@ -282,6 +316,18 @@ async function fetchChildrenData() {
             .sort((a, b) => b.checked_out_at_ms - a.checked_out_at_ms);
 
         childrenData = sortedData;
+        const confirmedById = new Map();
+        childrenData.forEach((child) => {
+            const childId = getChildId(child);
+            if (!childId) return;
+            confirmedById.set(childId, Boolean(child.checked_out_confirmed_at));
+        });
+        confirmationOverrides.forEach((value, childId) => {
+            const current = confirmedById.get(childId);
+            if (typeof current === 'boolean' && current === value.confirmed) {
+                confirmationOverrides.delete(childId);
+            }
+        });
         updateUI();
         updateTimes(); // Initialize times
 
