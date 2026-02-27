@@ -5,6 +5,9 @@
 # Go
 vendor/
 
+# Local databases
+database/
+
 # node
 node_modules
 
