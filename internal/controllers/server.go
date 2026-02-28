@@ -119,6 +119,17 @@ func StartServer(port int, dbFilepath string) error {
 		return c.SendStream(f)
 	})
 
+	app.Get("apple-touch-icon-precomposed.png", func(c *fiber.Ctx) error {
+		f, err := static.EmbeddedFS.Open("img/apple-touch-icon.png")
+		if err != nil {
+			return fiber.ErrInternalServerError
+		}
+		defer f.Close()
+
+		c.Type("image/png")
+		return c.SendStream(f)
+	})
+
 	app.Get("favicon.ico", func(c *fiber.Ctx) error {
 		f, err := static.EmbeddedFS.Open("img/favicon.ico")
 		if err != nil {
