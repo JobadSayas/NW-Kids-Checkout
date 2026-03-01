@@ -19,7 +19,6 @@ function loadWindow({ url = 'http://localhost/' } = {}) {
                     <form id="manual-checkin-form">
                         <input id="manual-first-name" name="first" value="" />
                         <input id="manual-last-name" name="last" value="" />
-                        <input id="manual-immediate-checkout" type="checkbox" />
                         <button id="manual-checkin-submit" type="submit">Save</button>
                     </form>
                     <button data-modal-close></button>

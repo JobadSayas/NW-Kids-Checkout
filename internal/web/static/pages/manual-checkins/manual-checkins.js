@@ -7,7 +7,6 @@ const modal = document.getElementById('manual-checkin-modal');
 const manualCheckinForm = document.getElementById('manual-checkin-form');
 const manualFirstName = document.getElementById('manual-first-name');
 const manualLastName = document.getElementById('manual-last-name');
-const manualImmediateCheckout = document.getElementById('manual-immediate-checkout');
 const manualSubmitButton = document.getElementById('manual-checkin-submit');
 
 const DEFAULT_CHECKED_OUT_AFTER = '-12h';
@@ -190,7 +189,7 @@ async function loadManualCheckins() {
 async function createManualCheckin(payload) {
     return fetchJson('/v1/checkins/manual-checkins', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(payload)
     });
 }
@@ -199,8 +198,8 @@ async function checkOutManualCheckin(publicId, checkedOut) {
     if (!publicId) return;
     await fetchJson(`/v1/checkins/manual-checkins/${publicId}/checked_out`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ checked_out: Boolean(checkedOut) })
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({checked_out: Boolean(checkedOut)})
     });
 }
 
@@ -239,8 +238,7 @@ document.addEventListener('DOMContentLoaded', () => {
             try {
                 await createManualCheckin({
                     first_name: firstName,
-                    last_name: lastName,
-                    immediate_checkout: Boolean(manualImmediateCheckout?.checked)
+                    last_name: lastName
                 });
                 toggleManualCheckinModal(false);
                 await loadManualCheckins();
