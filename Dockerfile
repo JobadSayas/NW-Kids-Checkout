@@ -1,7 +1,7 @@
 # =====================================
 # Builder Stage
 # =====================================
-FROM golang:1.25-alpine AS builder
+FROM golang:1.25-alpine3.23 AS builder
 
 WORKDIR /app
 
@@ -36,7 +36,7 @@ RUN GOOS=linux go build -o /app/nw-kids-checkout .
 # =====================================
 # Final Stage
 # =====================================
-FROM alpine:3.20
+FROM alpine:3.23
 
 # Install runtime dependencies: CA certs for TLS, SQLite libs/CLI
 RUN apk add --no-cache ca-certificates sqlite-libs sqlite
