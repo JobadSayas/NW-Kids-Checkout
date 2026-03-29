@@ -20,8 +20,11 @@ db-reset:
 
 .PHONY: db-migrate
 db-migrate:
-	migrate -source file://db/migrations -database "sqlite3://$(KIDS_CHECKIN_DB_FILE)" up && \
-	sqlite3 $(KIDS_CHECKIN_DB_FILE) .schema > db/structure.sql
+	@tmpdb=$$(mktemp) && \
+	sqlite3 $$tmpdb < db/pragmas.sqlite && \
+	migrate -source file://db/migrations -database "sqlite3://$$tmpdb" up && \
+	sqlite3 $$tmpdb .schema > db/structure.sql && \
+	rm -f $$tmpdb
 
 # usage: make db-new-migration NAME=<migration name>
 .PHONY: db-new-migration
