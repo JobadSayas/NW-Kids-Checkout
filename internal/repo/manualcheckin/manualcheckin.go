@@ -26,6 +26,7 @@ type Filter struct {
 
 type ManualCheckin struct {
 	ID                    int64
+	CreatedAt             time.Time
 	PublicID              string
 	FirstName             string
 	LastName              string
@@ -54,6 +55,7 @@ func NewRepo(db *sql.DB) Repo {
 func (s *sqliteRepo) ListManualCheckins(ctx context.Context, filter Filter) ([]ManualCheckin, error) {
 	builder := squirrel.Select(
 		"manual_checkins.id",
+		"manual_checkins.created_at",
 		"manual_checkins.public_id",
 		"manual_checkins.first_name",
 		"manual_checkins.last_name",
@@ -114,6 +116,7 @@ func (s *sqliteRepo) ListManualCheckins(ctx context.Context, filter Filter) ([]M
 
 		err := rows.Scan(
 			&manualCheckin.ID,
+			&manualCheckin.CreatedAt,
 			&manualCheckin.PublicID,
 			&manualCheckin.FirstName,
 			&manualCheckin.LastName,
@@ -171,6 +174,17 @@ func (s *sqliteRepo) CreateManualCheckin(ctx context.Context, manualCheckin Manu
 	}
 
 	manualCheckin.ID = id
+
+	err = squirrel.Select("created_at").
+		From("manual_checkins").
+		Where(squirrel.Eq{"id": id}).
+		RunWith(s.db).
+		QueryRowContext(ctx).
+		Scan(&manualCheckin.CreatedAt)
+	if err != nil {
+		return ManualCheckin{}, fmt.Errorf("fetching created_at: %w", err)
+	}
+
 	return manualCheckin, nil
 }
 

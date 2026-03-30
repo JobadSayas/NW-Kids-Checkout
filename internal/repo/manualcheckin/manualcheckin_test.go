@@ -189,6 +189,7 @@ func Test_sqliteRepo_CreateManualCheckin(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.NotZero(t, actual.ID)
+			assert.WithinDuration(t, time.Now().UTC(), actual.CreatedAt, 5*time.Second, "CreatedAt should be set to current time")
 			if tt.arg.PublicID == "" {
 				assert.NotEmpty(t, actual.PublicID)
 				_, parseErr := uuid.Parse(actual.PublicID)
@@ -208,6 +209,7 @@ func Test_sqliteRepo_CreateManualCheckin(t *testing.T) {
 			require.Len(t, manualCheckins, 1)
 
 			assert.Equal(t, actual.ID, manualCheckins[0].ID)
+			assert.Equal(t, actual.CreatedAt, manualCheckins[0].CreatedAt)
 			assert.Equal(t, actual.PublicID, manualCheckins[0].PublicID)
 			assert.Equal(t, actual.FirstName, manualCheckins[0].FirstName)
 			assert.Equal(t, actual.LastName, manualCheckins[0].LastName)

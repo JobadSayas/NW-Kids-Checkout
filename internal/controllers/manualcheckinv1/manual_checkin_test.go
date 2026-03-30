@@ -50,11 +50,13 @@ func TestController_PostManualCheckin(t *testing.T) {
 		err = json.NewDecoder(resp.Body).Decode(&response)
 		require.NoError(t, err)
 		require.NotNil(t, response.CheckedOutAt)
+		require.NotNil(t, response.CreatedAt)
 		assert.Equal(t, "manual-public-1", response.PublicID)
 		assert.Equal(t, "jane", response.FirstName)
 		assert.Equal(t, "zeta", response.LastName)
 		assert.Equal(t, "manual", response.Source)
 		assert.WithinDuration(t, time.Now().UTC(), *response.CheckedOutAt, 2*time.Second)
+		assert.WithinDuration(t, time.Now().UTC(), *response.CreatedAt, 2*time.Second)
 
 		manualRepo := manualcheckin.NewRepo(testDB)
 		manualCheckins, err := manualRepo.ListManualCheckins(t.Context(), manualcheckin.Filter{FirstName: "jane", LastName: "zeta"})

@@ -231,10 +231,15 @@ func repoManualCheckinToOutput(manualCheckin manualcheckin.ManualCheckin) Checki
 	if !manualCheckin.CheckedOutConfirmedAt.IsZero() {
 		coc = &manualCheckin.CheckedOutConfirmedAt
 	}
+	var ca *time.Time
+	if !manualCheckin.CreatedAt.IsZero() {
+		ca = &manualCheckin.CreatedAt
+	}
 	return Checkin{
 		PublicID:              manualCheckin.PublicID,
 		FirstName:             manualCheckin.FirstName,
 		LastName:              manualCheckin.LastName,
+		CreatedAt:             ca,
 		CheckedOutAt:          coa,
 		CheckedOutConfirmedAt: coc,
 		Source:                "manual",
@@ -351,6 +356,7 @@ type Checkin struct {
 	FirstName             string     `json:"first_name"`
 	LastName              string     `json:"last_name"`
 	SecurityCode          string     `json:"security_code"`
+	CreatedAt             *time.Time `json:"created_at"`
 	CheckedOutAt          *time.Time `json:"checked_out_at"`
 	CheckedOutConfirmedAt *time.Time `json:"checked_out_confirmed_at"`
 	Source                string     `json:"source"`

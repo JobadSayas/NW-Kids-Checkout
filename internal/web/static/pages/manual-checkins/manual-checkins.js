@@ -94,13 +94,20 @@ function formatCheckedOutAt(value) {
     return date.toLocaleString();
 }
 
+function formatCreatedAt(value) {
+    if (!value) return '—';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '—';
+    return date.toLocaleString();
+}
+
 function renderManualCheckins(checkins) {
     if (!manualCheckinsBody) return;
 
     if (!checkins.length) {
         manualCheckinsBody.innerHTML = `
             <tr>
-                <td class="px-4 py-6 text-center text-slate-500" colspan="4">No manual check-ins found.</td>
+                <td class="px-4 py-6 text-center text-slate-500" colspan="5">No manual check-ins found.</td>
             </tr>
         `;
         return;
@@ -117,6 +124,14 @@ function renderManualCheckins(checkins) {
         nameValue.className = 'font-medium text-slate-900';
         nameValue.textContent = `${checkin.first_name || ''} ${checkin.last_name || ''}`.trim();
         nameCell.appendChild(nameValue);
+
+        const createdCell = document.createElement('td');
+        createdCell.className = 'px-4 py-4';
+        createdCell.dataset.label = 'Created';
+        const createdValue = document.createElement('span');
+        createdValue.className = 'text-slate-600';
+        createdValue.textContent = formatCreatedAt(checkin.created_at);
+        createdCell.appendChild(createdValue);
 
         const statusCell = document.createElement('td');
         statusCell.className = 'px-4 py-4';
@@ -149,6 +164,7 @@ function renderManualCheckins(checkins) {
 
         row.appendChild(nameCell);
         row.appendChild(statusCell);
+        row.appendChild(createdCell);
         row.appendChild(checkedOutCell);
         row.appendChild(actionCell);
 
