@@ -41,6 +41,7 @@ func (controller *Controller) RegisterRoutes(app *fiber.App) {
 	eventGroup := app.Group("/v1/events")
 	eventGroup.Use(middleware.AuthRequired(controller.sessionStore, ""))
 
+	eventGroup.Get("", controller.ListEvents)
 	eventGroup.Get("/:id", controller.GetEventByID)
 
 	adminGroup := app.Group("/v1/admin/events")
@@ -52,6 +53,20 @@ func (controller *Controller) RegisterRoutes(app *fiber.App) {
 	adminGroup.Post("/:eventId/check-windows", controller.PostCreateCheckWindow)
 	adminGroup.Put("/:eventId/check-windows/:windowId", controller.PutUpdateCheckWindow)
 	adminGroup.Delete("/:eventId/check-windows/:windowId", controller.DeleteCheckWindow)
+}
+
+func (controller *Controller) ListEvents(c *fiber.Ctx) error {
+	events, err := controller.repo.ListEvents(c.Context())
+	if err != nil {
+		return err
+	}
+
+	output := make([]Event, len(events))
+	for i, e := range events {
+		output[i] = repoEventToOutput(e)
+	}
+
+	return c.JSON(output)
 }
 
 func (controller *Controller) GetEventByID(c *fiber.Ctx) error {

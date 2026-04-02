@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NW Kids - Event Locations</title>
+    <title>NW Kids - Event Check Windows</title>
     <link rel="icon" type="image/x-icon" href="/favicon.ico"/>
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png"/>
     <link rel="manifest" href="/manifest.webmanifest"/>
@@ -16,22 +16,15 @@
 </head>
 <body class="min-h-screen bg-slate-50 text-slate-900">
 <div class="max-w-6xl mx-auto px-6 py-10">
-    <header class="flex flex-col gap-3 mb-8">
+    <header class="flex flex-col gap-2 mb-8">
         <div class="flex items-center gap-3">
             <a href="/admin">
                 <img src="/static/img/NWKids-logo.svg" alt="NWKids Logo" class="h-16 md:h-24 w-auto">
             </a>
             <div>
-                <h1 class="text-3xl font-semibold">Event Locations</h1>
-                <p class="text-sm text-slate-600">Event: <span id="event-name-label" class="font-semibold">-</span></p>
-                <p class="text-sm text-slate-600">Planning Center event ID: <span id="event-id-label" class="font-semibold">-</span></p>
+                <h1 class="text-3xl font-semibold">Event Check Windows</h1>
+                <p class="text-sm text-slate-600">Configure when to check for event updates.</p>
             </div>
-        </div>
-        <div class="flex flex-wrap items-center gap-3">
-            <button id="add-event-button" type="button" class="inline-flex cursor-pointer items-center justify-center rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400">
-                Add event to system
-            </button>
-            <p id="event-added-status" class="hidden text-sm font-semibold text-emerald-700">This event has already been added to the system.</p>
         </div>
     </header>
 
@@ -41,27 +34,28 @@
         <table class="min-w-full text-sm">
             <thead class="sticky top-0 z-10 bg-slate-100 text-left text-xs uppercase tracking-wide text-slate-600 shadow-sm">
             <tr>
-                <th class="px-4 py-3">Location</th>
-                <th class="px-4 py-3">Parent</th>
+                <th class="px-4 py-3">Event</th>
                 <th class="px-4 py-3">Planning Center ID</th>
+                <th class="px-4 py-3">Check Windows</th>
+                <th class="px-4 py-3">Actions</th>
             </tr>
             </thead>
-            <tbody id="locations-body" class="divide-y divide-slate-100">
+            <tbody id="events-body" class="divide-y divide-slate-100">
             <tr>
-                <td class="px-4 py-6 text-center text-slate-500" colspan="3">Loading locations...</td>
+                <td class="px-4 py-6 text-center text-slate-500" colspan="4">Loading events...</td>
             </tr>
             </tbody>
         </table>
     </div>
 
     <div class="mt-10">
-        <a href="/admin/planningcenter/events" class="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-900">
+        <a href="/admin" class="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-900">
             <span aria-hidden="true">←</span>
-            Back to events
+            Back to admin
         </a>
     </div>
 </div>
 
-<script src="/static/pages/admin/planningcenter-event.js?v=dae40282f949"></script>
+<script src="/static/pages/admin/event-check-windows.js?v=46e1601f953f"></script>
 </body>
 </html>

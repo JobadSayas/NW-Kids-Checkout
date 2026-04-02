@@ -21,6 +21,7 @@ type Event struct {
 type Repo interface {
 	GetEventByID(ctx context.Context, id int64) (Event, error)
 	GetEventByPlanningCenterID(ctx context.Context, planningCenterID string) (Event, error)
+	ListEvents(ctx context.Context) ([]Event, error)
 	CreateEvent(ctx context.Context, event Event) (Event, error)
 	UpdateEventName(ctx context.Context, id int64, name string) error
 }
@@ -75,6 +76,32 @@ func (r *sqliteRepo) GetEventByPlanningCenterID(ctx context.Context, planningCen
 	}
 
 	return event, nil
+}
+
+func (r *sqliteRepo) ListEvents(ctx context.Context) ([]Event, error) {
+	builder := squirrel.
+		Select("id", "name", "planning_center_id").
+		From("events").
+		OrderBy("name").
+		RunWith(r.db)
+
+	rows, err := builder.QueryContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("querying events: %w", err)
+	}
+	defer rows.Close()
+
+	var events []Event
+	for rows.Next() {
+		var event Event
+		err := rows.Scan(&event.ID, &event.Name, &event.PlanningCenterID)
+		if err != nil {
+			return nil, fmt.Errorf("scanning event: %w", err)
+		}
+		events = append(events, event)
+	}
+
+	return events, nil
 }
 
 func (r *sqliteRepo) CreateEvent(ctx context.Context, event Event) (Event, error) {
