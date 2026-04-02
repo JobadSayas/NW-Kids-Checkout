@@ -13,24 +13,27 @@ import (
 	"kids-checkin/internal/controllers/session"
 	"kids-checkin/internal/repo"
 	"kids-checkin/internal/repo/event"
+	"kids-checkin/internal/repo/eventcheckwindow"
 	"kids-checkin/internal/repo/location"
 
 	"github.com/gofiber/fiber/v2"
 )
 
 type Controller struct {
-	db           *sql.DB
-	repo         event.Repo
-	client       planningcenter.Client
-	sessionStore session.Storer
+	db              *sql.DB
+	repo            event.Repo
+	checkWindowRepo eventcheckwindow.Repo
+	client          planningcenter.Client
+	sessionStore    session.Storer
 }
 
 func NewController(db *sql.DB, sessionStore session.Storer) *Controller {
 	return &Controller{
-		db:           db,
-		repo:         event.NewRepo(db),
-		client:       planningcenter.NewClient(),
-		sessionStore: sessionStore,
+		db:              db,
+		repo:            event.NewRepo(db),
+		checkWindowRepo: eventcheckwindow.NewRepo(db),
+		client:          planningcenter.NewClient(),
+		sessionStore:    sessionStore,
 	}
 }
 
@@ -44,6 +47,11 @@ func (controller *Controller) RegisterRoutes(app *fiber.App) {
 	adminGroup.Use(middleware.AuthRequired(controller.sessionStore, "admin"))
 	adminGroup.Get("/lookup", controller.GetEventByPlanningCenterID)
 	adminGroup.Post("", controller.PostCreateEvent)
+
+	adminGroup.Get("/:eventId/check-windows", controller.GetEventCheckWindows)
+	adminGroup.Post("/:eventId/check-windows", controller.PostCreateCheckWindow)
+	adminGroup.Put("/:eventId/check-windows/:windowId", controller.PutUpdateCheckWindow)
+	adminGroup.Delete("/:eventId/check-windows/:windowId", controller.DeleteCheckWindow)
 }
 
 func (controller *Controller) GetEventByID(c *fiber.Ctx) error {
@@ -158,5 +166,142 @@ func repoEventToOutput(event event.Event) Event {
 		ID:               event.ID,
 		Name:             event.Name,
 		PlanningCenterID: event.PlanningCenterID,
+	}
+}
+
+func (controller *Controller) GetEventCheckWindows(c *fiber.Ctx) error {
+	eventID, err := strconv.ParseInt(c.Params("eventId"), 10, 64)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid event id")
+	}
+
+	windows, err := controller.checkWindowRepo.GetCheckWindowsForEvent(c.Context(), eventID)
+	if err != nil {
+		return err
+	}
+
+	output := make([]EventCheckWindowOutput, len(windows))
+	for i, w := range windows {
+		output[i] = repoCheckWindowToOutput(w)
+	}
+
+	return c.JSON(output)
+}
+
+func (controller *Controller) PostCreateCheckWindow(c *fiber.Ctx) error {
+	eventID, err := strconv.ParseInt(c.Params("eventId"), 10, 64)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid event id")
+	}
+
+	var input EventCheckWindowInput
+	if err := json.Unmarshal(c.Body(), &input); err != nil {
+		slog.WarnContext(c.Context(), "invalid check window creation payload", slog.String("error", err.Error()))
+		return fiber.NewError(fiber.StatusBadRequest, "invalid JSON")
+	}
+
+	window := inputToCheckWindow(input, eventID)
+	created, err := controller.checkWindowRepo.CreateCheckWindow(c.Context(), window)
+	if err != nil {
+		slog.WarnContext(c.Context(), "failed to create check window", slog.String("error", err.Error()))
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+
+	slog.InfoContext(c.Context(), "created check window", slog.Int64("event_id", eventID), slog.Int64("window_id", created.ID))
+
+	return c.Status(fiber.StatusCreated).JSON(repoCheckWindowToOutput(created))
+}
+
+func (controller *Controller) PutUpdateCheckWindow(c *fiber.Ctx) error {
+	eventID, err := strconv.ParseInt(c.Params("eventId"), 10, 64)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid event id")
+	}
+
+	windowID, err := strconv.ParseInt(c.Params("windowId"), 10, 64)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid window id")
+	}
+
+	var input EventCheckWindowInput
+	if err := json.Unmarshal(c.Body(), &input); err != nil {
+		slog.WarnContext(c.Context(), "invalid check window update payload", slog.String("error", err.Error()))
+		return fiber.NewError(fiber.StatusBadRequest, "invalid JSON")
+	}
+
+	window := inputToCheckWindow(input, eventID)
+	window.ID = windowID
+
+	err = controller.checkWindowRepo.UpdateCheckWindow(c.Context(), window)
+	if err != nil {
+		if errors.Is(err, repo.ErrNotFound) {
+			return fiber.NewError(fiber.StatusNotFound, "check window not found")
+		}
+		slog.WarnContext(c.Context(), "failed to update check window", slog.String("error", err.Error()))
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+
+	slog.InfoContext(c.Context(), "updated check window", slog.Int64("event_id", eventID), slog.Int64("window_id", windowID))
+
+	return c.JSON(repoCheckWindowToOutput(window))
+}
+
+func (controller *Controller) DeleteCheckWindow(c *fiber.Ctx) error {
+	windowID, err := strconv.ParseInt(c.Params("windowId"), 10, 64)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid window id")
+	}
+
+	err = controller.checkWindowRepo.DeleteCheckWindow(c.Context(), windowID)
+	if err != nil {
+		if errors.Is(err, repo.ErrNotFound) {
+			return fiber.NewError(fiber.StatusNotFound, "check window not found")
+		}
+		return err
+	}
+
+	slog.InfoContext(c.Context(), "deleted check window", slog.Int64("window_id", windowID))
+
+	return c.SendStatus(fiber.StatusNoContent)
+}
+
+type EventCheckWindowInput struct {
+	StartDayOfWeek int    `json:"start_day_of_week"`
+	StartTime      string `json:"start_time"`
+	EndDayOfWeek   int    `json:"end_day_of_week"`
+	EndTime        string `json:"end_time"`
+	Timezone       string `json:"timezone"`
+}
+
+type EventCheckWindowOutput struct {
+	ID             int64  `json:"id"`
+	EventID        int64  `json:"event_id"`
+	StartDayOfWeek int    `json:"start_day_of_week"`
+	StartTime      string `json:"start_time"`
+	EndDayOfWeek   int    `json:"end_day_of_week"`
+	EndTime        string `json:"end_time"`
+	Timezone       string `json:"timezone"`
+}
+
+func repoCheckWindowToOutput(w eventcheckwindow.EventCheckWindow) EventCheckWindowOutput {
+	return EventCheckWindowOutput{
+		ID:             w.ID,
+		EventID:        w.EventID,
+		StartDayOfWeek: w.StartDayOfWeek,
+		StartTime:      w.StartTime,
+		EndDayOfWeek:   w.EndDayOfWeek,
+		EndTime:        w.EndTime,
+		Timezone:       w.Timezone,
+	}
+}
+
+func inputToCheckWindow(input EventCheckWindowInput, eventID int64) eventcheckwindow.EventCheckWindow {
+	return eventcheckwindow.EventCheckWindow{
+		EventID:        eventID,
+		StartDayOfWeek: input.StartDayOfWeek,
+		StartTime:      input.StartTime,
+		EndDayOfWeek:   input.EndDayOfWeek,
+		EndTime:        input.EndTime,
+		Timezone:       input.Timezone,
 	}
 }

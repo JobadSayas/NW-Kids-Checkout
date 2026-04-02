@@ -235,3 +235,255 @@ func setupAuthedApp() (*fiber.App, *session.Store) {
 	})
 	return app, store
 }
+
+func TestController_GetEventCheckWindows(t *testing.T) {
+	app, store := setupAuthedApp()
+
+	testDB, cleanup, err := db.PrepareTestDB()
+	require.NoError(t, err, "Failed to prepare test DB")
+	t.Cleanup(cleanup)
+
+	controller := NewController(testDB, store)
+	controller.RegisterRoutes(app)
+
+	eventRes, err := squirrel.Insert("events").
+		RunWith(testDB).
+		Columns("name", "planning_center_id").
+		Values("Sunday Service", "pc_evt_1").
+		ExecContext(t.Context())
+	require.NoError(t, err)
+	eventID, _ := eventRes.LastInsertId()
+
+	_, err = squirrel.Insert("event_check_windows").
+		RunWith(testDB).
+		Columns("event_id", "start_day_of_week", "start_time", "end_day_of_week", "end_time", "timezone").
+		Values(eventID, 1, "09:00", 1, "12:00", "America/Los_Angeles").
+		ExecContext(t.Context())
+	require.NoError(t, err)
+
+	t.Run("success", func(t *testing.T) {
+		req := httptest.NewRequest("GET", fmt.Sprintf("/v1/admin/events/%d/check-windows", eventID), nil)
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		require.Equal(t, fiber.StatusOK, resp.StatusCode)
+
+		var payload []EventCheckWindowOutput
+		err = json.NewDecoder(resp.Body).Decode(&payload)
+		require.NoError(t, err)
+		assert.Len(t, payload, 1)
+		assert.Equal(t, 1, payload[0].StartDayOfWeek)
+		assert.Equal(t, "09:00", payload[0].StartTime)
+	})
+
+	t.Run("empty list", func(t *testing.T) {
+		otherRes, err := squirrel.Insert("events").
+			RunWith(testDB).
+			Columns("name", "planning_center_id").
+			Values("Other Service", "pc_evt_2").
+			ExecContext(t.Context())
+		require.NoError(t, err)
+		otherEventID, _ := otherRes.LastInsertId()
+
+		req := httptest.NewRequest("GET", fmt.Sprintf("/v1/admin/events/%d/check-windows", otherEventID), nil)
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		require.Equal(t, fiber.StatusOK, resp.StatusCode)
+
+		var payload []EventCheckWindowOutput
+		err = json.NewDecoder(resp.Body).Decode(&payload)
+		require.NoError(t, err)
+		assert.Len(t, payload, 0)
+	})
+
+	t.Run("invalid event id", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/v1/admin/events/not-a-number/check-windows", nil)
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		assert.Equal(t, fiber.StatusBadRequest, resp.StatusCode)
+	})
+}
+
+func TestController_PostCreateCheckWindow(t *testing.T) {
+	app, store := setupAuthedApp()
+
+	testDB, cleanup, err := db.PrepareTestDB()
+	require.NoError(t, err, "Failed to prepare test DB")
+	t.Cleanup(cleanup)
+
+	controller := NewController(testDB, store)
+	controller.RegisterRoutes(app)
+
+	eventRes, err := squirrel.Insert("events").
+		RunWith(testDB).
+		Columns("name", "planning_center_id").
+		Values("Sunday Service", "pc_evt_1").
+		ExecContext(t.Context())
+	require.NoError(t, err)
+	eventID, _ := eventRes.LastInsertId()
+
+	t.Run("success", func(t *testing.T) {
+		payload := EventCheckWindowInput{
+			StartDayOfWeek: 1,
+			StartTime:      "09:00",
+			EndDayOfWeek:   1,
+			EndTime:        "12:00",
+			Timezone:       "America/Los_Angeles",
+		}
+		body, _ := json.Marshal(payload)
+
+		req := httptest.NewRequest("POST", fmt.Sprintf("/v1/admin/events/%d/check-windows", eventID), bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		require.Equal(t, fiber.StatusCreated, resp.StatusCode)
+
+		var created EventCheckWindowOutput
+		err = json.NewDecoder(resp.Body).Decode(&created)
+		require.NoError(t, err)
+		assert.NotZero(t, created.ID)
+		assert.Equal(t, eventID, created.EventID)
+		assert.Equal(t, 1, created.StartDayOfWeek)
+	})
+
+	t.Run("invalid input", func(t *testing.T) {
+		payload := EventCheckWindowInput{
+			StartDayOfWeek: 0,
+			StartTime:      "09:00",
+			EndDayOfWeek:   1,
+			EndTime:        "12:00",
+			Timezone:       "America/Los_Angeles",
+		}
+		body, _ := json.Marshal(payload)
+
+		req := httptest.NewRequest("POST", fmt.Sprintf("/v1/admin/events/%d/check-windows", eventID), bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		assert.Equal(t, fiber.StatusBadRequest, resp.StatusCode)
+	})
+
+	t.Run("invalid event id", func(t *testing.T) {
+		payload := EventCheckWindowInput{
+			StartDayOfWeek: 1,
+			StartTime:      "09:00",
+			EndDayOfWeek:   1,
+			EndTime:        "12:00",
+			Timezone:       "America/Los_Angeles",
+		}
+		body, _ := json.Marshal(payload)
+
+		req := httptest.NewRequest("POST", "/v1/admin/events/not-a-number/check-windows", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		assert.Equal(t, fiber.StatusBadRequest, resp.StatusCode)
+	})
+}
+
+func TestController_PutUpdateCheckWindow(t *testing.T) {
+	app, store := setupAuthedApp()
+
+	testDB, cleanup, err := db.PrepareTestDB()
+	require.NoError(t, err, "Failed to prepare test DB")
+	t.Cleanup(cleanup)
+
+	controller := NewController(testDB, store)
+	controller.RegisterRoutes(app)
+
+	eventRes, err := squirrel.Insert("events").
+		RunWith(testDB).
+		Columns("name", "planning_center_id").
+		Values("Sunday Service", "pc_evt_1").
+		ExecContext(t.Context())
+	require.NoError(t, err)
+	eventID, _ := eventRes.LastInsertId()
+
+	windowRes, err := squirrel.Insert("event_check_windows").
+		RunWith(testDB).
+		Columns("event_id", "start_day_of_week", "start_time", "end_day_of_week", "end_time", "timezone").
+		Values(eventID, 1, "09:00", 1, "12:00", "America/Los_Angeles").
+		ExecContext(t.Context())
+	require.NoError(t, err)
+	windowID, _ := windowRes.LastInsertId()
+
+	t.Run("success", func(t *testing.T) {
+		payload := EventCheckWindowInput{
+			StartDayOfWeek: 1,
+			StartTime:      "10:00",
+			EndDayOfWeek:   1,
+			EndTime:        "13:00",
+			Timezone:       "America/Los_Angeles",
+		}
+		body, _ := json.Marshal(payload)
+
+		req := httptest.NewRequest("PUT", fmt.Sprintf("/v1/admin/events/%d/check-windows/%d", eventID, windowID), bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		require.Equal(t, fiber.StatusOK, resp.StatusCode)
+
+		var updated EventCheckWindowOutput
+		err = json.NewDecoder(resp.Body).Decode(&updated)
+		require.NoError(t, err)
+		assert.Equal(t, "10:00", updated.StartTime)
+		assert.Equal(t, "13:00", updated.EndTime)
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		payload := EventCheckWindowInput{
+			StartDayOfWeek: 1,
+			StartTime:      "10:00",
+			EndDayOfWeek:   1,
+			EndTime:        "13:00",
+			Timezone:       "America/Los_Angeles",
+		}
+		body, _ := json.Marshal(payload)
+
+		req := httptest.NewRequest("PUT", fmt.Sprintf("/v1/admin/events/%d/check-windows/9999", eventID), bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		assert.Equal(t, fiber.StatusNotFound, resp.StatusCode)
+	})
+}
+
+func TestController_DeleteCheckWindow(t *testing.T) {
+	app, store := setupAuthedApp()
+
+	testDB, cleanup, err := db.PrepareTestDB()
+	require.NoError(t, err, "Failed to prepare test DB")
+	t.Cleanup(cleanup)
+
+	controller := NewController(testDB, store)
+	controller.RegisterRoutes(app)
+
+	eventRes, err := squirrel.Insert("events").
+		RunWith(testDB).
+		Columns("name", "planning_center_id").
+		Values("Sunday Service", "pc_evt_1").
+		ExecContext(t.Context())
+	require.NoError(t, err)
+	eventID, _ := eventRes.LastInsertId()
+
+	windowRes, err := squirrel.Insert("event_check_windows").
+		RunWith(testDB).
+		Columns("event_id", "start_day_of_week", "start_time", "end_day_of_week", "end_time", "timezone").
+		Values(eventID, 1, "09:00", 1, "12:00", "America/Los_Angeles").
+		ExecContext(t.Context())
+	require.NoError(t, err)
+	windowID, _ := windowRes.LastInsertId()
+
+	t.Run("success", func(t *testing.T) {
+		req := httptest.NewRequest("DELETE", fmt.Sprintf("/v1/admin/events/%d/check-windows/%d", eventID, windowID), nil)
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		require.Equal(t, fiber.StatusNoContent, resp.StatusCode)
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		req := httptest.NewRequest("DELETE", fmt.Sprintf("/v1/admin/events/%d/check-windows/9999", eventID), nil)
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		assert.Equal(t, fiber.StatusNotFound, resp.StatusCode)
+	})
+}
