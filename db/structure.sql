@@ -47,3 +47,14 @@ CREATE TABLE IF NOT EXISTS "manual_checkins" (
     checked_out_confirmed_at DATETIME DEFAULT NULL
 );
 CREATE INDEX idx_manual_checked_out_at ON manual_checkins (checked_out_at);
+CREATE TABLE event_check_windows
+(
+    id                INTEGER PRIMARY KEY,
+    event_id          INTEGER NOT NULL REFERENCES events (id) ON DELETE CASCADE ON UPDATE CASCADE,
+    start_day_of_week INTEGER NOT NULL CHECK (start_day_of_week BETWEEN 1 AND 7),
+    start_time        TEXT    NOT NULL,
+    end_day_of_week   INTEGER NOT NULL CHECK (end_day_of_week BETWEEN 1 AND 7),
+    end_time          TEXT    NOT NULL,
+    timezone          TEXT    NOT NULL
+);
+CREATE INDEX idx_event_check_windows_event_id ON event_check_windows (event_id);
