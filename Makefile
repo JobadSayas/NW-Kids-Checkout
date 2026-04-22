@@ -15,8 +15,7 @@ help:
 db-reset:
 	rm -f $(KIDS_CHECKIN_DB_FILE) && \
     touch $(KIDS_CHECKIN_DB_FILE) && \
-    set -e; sqlite3 $(KIDS_CHECKIN_DB_FILE) < db/pragmas.sqlite && \
-    migrate -source file://db/migrations -database "sqlite3://$(KIDS_CHECKIN_DB_FILE)" up
+    set -e; sqlite3 $(KIDS_CHECKIN_DB_FILE) < db/structure.sql
 
 .PHONY: db-migrate
 db-migrate:
@@ -24,7 +23,8 @@ db-migrate:
 	sqlite3 $$tmpdb < db/pragmas.sqlite && \
 	migrate -source file://db/migrations -database "sqlite3://$$tmpdb" up && \
 	sqlite3 $$tmpdb .schema > db/structure.sql && \
-	rm -f $$tmpdb
+	rm -f $$tmpdb && \
+	migrate -source file://db/migrations -database "sqlite3://$(KIDS_CHECKIN_DB_FILE)" up
 
 # usage: make db-new-migration NAME=<migration name>
 .PHONY: db-new-migration
@@ -56,7 +56,7 @@ web-lr:
 
 .PHONY: checkout-fetcher
 checkout-fetcher: build
-	godotenv $(BIN_PATH) checkout-fetcher
+	godotenv $(BIN_PATH) checkout-fetcher --fetch-by-event
 
 .PHONY: test
 test:

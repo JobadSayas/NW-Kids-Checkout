@@ -1,0 +1,8 @@
+ALTER TABLE checkins
+ADD COLUMN event_id DEFAULT NULL;
+
+ALTER TABLE events
+ADD COLUMN auto_fetch INTEGER DEFAULT 0;
+
+ALTER TABLE events
+ADD COLUMN last_checked_out_time DATETIME DEFAULT NULL;

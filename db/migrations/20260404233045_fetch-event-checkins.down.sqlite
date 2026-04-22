@@ -1,0 +1,8 @@
+ALTER TABLE checkins
+DROP COLUMN event_id;
+
+ALTER TABLE events
+DROP COLUMN auto_fetch;
+
+ALTER TABLE events
+DROP COLUMN last_checked_out_time;
