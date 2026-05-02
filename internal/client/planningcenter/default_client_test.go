@@ -99,6 +99,91 @@ func Test_defaultClient_GetCheckoutsForLocation_Fake(t *testing.T) {
 	assert.Equal(t, int64(1), atomic.LoadInt64(&requestCount))
 }
 
+func Test_defaultClient_GetCheckoutsForEvent_Real(t *testing.T) {
+	t.Skip()
+	require.NotEmpty(t, os.Getenv("PLANNING_CENTER_API_BASE_URL"), "PLANNING_CENTER_API_BASE_URL must be set to run this test")
+	require.NotEmpty(t, os.Getenv("PLANNING_CENTER_API_CLIENT_ID"), "PLANNING_CENTER_API_CLIENT_ID must be set to run this test")
+	require.NotEmpty(t, os.Getenv("PLANNING_CENTER_API_SECRET"), "PLANNING_CENTER_API_SECRET must be set to run this test")
+
+	type fields struct {
+		baseURL  string
+		clientID string
+		secret   string
+	}
+	type args struct {
+		ctx                 context.Context
+		eventID             string
+		checkedOutOnOrAfter time.Time
+		limit               int
+	}
+	tests := []struct {
+		name    string
+		fields  fields
+		args    args
+		want    []Checkout
+		wantErr bool
+	}{
+		{
+			name: "get checkins",
+			args: args{
+				ctx:                 t.Context(),
+				eventID:             "151353",
+				checkedOutOnOrAfter: time.Date(2026, time.April, 5, 0, 0, 0, 0, time.UTC),
+			},
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &defaultClient{
+				httpClient: http.DefaultClient,
+				baseURL:    os.Getenv("PLANNING_CENTER_API_BASE_URL"),
+				clientID:   os.Getenv("PLANNING_CENTER_API_CLIENT_ID"),
+				secret:     os.Getenv("PLANNING_CENTER_API_SECRET"),
+			}
+			got, err := client.GetCheckoutsForEvent(tt.args.ctx, tt.args.eventID, tt.args.checkedOutOnOrAfter, tt.args.limit)
+			require.NoError(t, err)
+			fmt.Printf("%+v\n", got)
+			// t.Fail()
+		})
+	}
+}
+
+func Test_defaultClient_GetCheckoutsForEvent_Fake(t *testing.T) {
+	checkedOutAt := time.Now().UTC().Add(-1 * time.Minute).Round(time.Second)
+	var requestCount int64
+
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt64(&requestCount, 1)
+
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprintf(w, `{"links":{"self":"%s","next":""},"data":[{"type":"check_in","id":"123","attributes":{"first_name":"Test","last_name":"User","security_code":"ABC123","checked_out_at":"%s"}}]}`,
+			server.URL+r.URL.Path,
+			checkedOutAt.Format(time.RFC3339),
+		)
+	}))
+	defer server.Close()
+
+	client := &defaultClient{
+		httpClient: server.Client(),
+		baseURL:    server.URL,
+		clientID:   "client",
+		secret:     "secret",
+	}
+
+	checkouts, err := client.GetCheckoutsForEvent(t.Context(), "evt-123", checkedOutAt.Add(-10*time.Minute), 0)
+	require.NoError(t, err)
+	require.Len(t, checkouts, 1)
+	assert.Equal(t, "123", checkouts[0].ID)
+	assert.Equal(t, "Test", checkouts[0].FirstName)
+	assert.Equal(t, "User", checkouts[0].LastName)
+	assert.Equal(t, "ABC123", checkouts[0].SecurityCode)
+	assert.Equal(t, checkedOutAt, checkouts[0].CheckedOutAt)
+	assert.Equal(t, int64(1), atomic.LoadInt64(&requestCount))
+}
+
 func Test_defaultClient_GetLocation_Real(t *testing.T) {
 	t.Skip()
 	require.NotEmpty(t, os.Getenv("PLANNING_CENTER_API_BASE_URL"), "PLANNING_CENTER_API_BASE_URL must be set to run this test")
@@ -188,6 +273,7 @@ func Test_defaultClient_GetEventByID_EmptyID(t *testing.T) {
 }
 
 func Test_defaultClient_GetLocationsForEvent(t *testing.T) {
+	t.Skip()
 	require.NotEmpty(t, os.Getenv("PLANNING_CENTER_API_BASE_URL"), "PLANNING_CENTER_API_BASE_URL must be set to run this test")
 	require.NotEmpty(t, os.Getenv("PLANNING_CENTER_API_CLIENT_ID"), "PLANNING_CENTER_API_CLIENT_ID must be set to run this test")
 	require.NotEmpty(t, os.Getenv("PLANNING_CENTER_API_SECRET"), "PLANNING_CENTER_API_SECRET must be set to run this test")

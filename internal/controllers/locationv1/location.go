@@ -85,7 +85,7 @@ func (controller *Controller) PatchUpdateLocation(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "invalid JSON")
 	}
 
-	locations, err := controller.repo.ListLocations(c.Context(), location.LocationFilter{ID: locationID})
+	locations, err := controller.repo.ListLocations(c.Context(), location.LocationFilter{IDs: []int64{locationID}})
 	if err != nil {
 		return err
 	}

@@ -18,6 +18,7 @@ import (
 	"kids-checkin/internal/client/planningcenter"
 	"kids-checkin/internal/db"
 	"kids-checkin/internal/repo/checkin"
+	"kids-checkin/internal/repo/event"
 	"kids-checkin/internal/repo/location"
 	"kids-checkin/internal/static"
 
@@ -25,7 +26,7 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-func FetchCheckouts(ctx context.Context, cmd *cli.Command) error {
+func FetchCheckoutsV1(ctx context.Context, cmd *cli.Command) error {
 	dbFile := cmd.String("db-file")
 	database, err := db.InitDB(dbFile)
 	if err != nil {
@@ -59,7 +60,7 @@ func FetchCheckouts(ctx context.Context, cmd *cli.Command) error {
 		os.Exit(1)
 	}()
 
-	pcClient, checkinRepo, locationsRepo := getClients(database)
+	pcClient, checkinRepo, locationsRepo, _ := getClients(database)
 
 	for {
 		if ctx.Err() != nil {
@@ -80,6 +81,244 @@ func FetchCheckouts(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	return nil
+}
+
+func FetchCheckouts(ctx context.Context, cmd *cli.Command) error {
+	fetchByEvent := cmd.Bool("fetch-by-event")
+	if fetchByEvent {
+		return FetchCheckoutsV2(ctx, cmd)
+	}
+	return FetchCheckoutsV1(ctx, cmd)
+}
+
+func FetchCheckoutsV2(ctx context.Context, cmd *cli.Command) error {
+	dbFile := cmd.String("db-file")
+	database, err := db.InitDB(dbFile)
+	if err != nil {
+		panic(err)
+	}
+
+	defer database.Close()
+
+	interval := cmd.Duration("interval")
+	if interval <= 0 {
+		return errors.New("interval must be greater than 0")
+	}
+
+	eventUpdateInterval := cmd.Duration("event-update-interval")
+	if eventUpdateInterval <= 0 {
+		return errors.New("event-update-interval must be greater than 0")
+	}
+
+	runtime := cmd.Duration("runtime")
+	if runtime <= 0 {
+		return errors.New("runtime must be greater than 0")
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, runtime)
+	defer cancel()
+
+	c := make(chan os.Signal)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-c
+		os.Exit(1)
+	}()
+
+	pcClient, checkinRepo, locationsRepo, eventRepo := getClients(database)
+
+	locationMap := sync.Map{}
+
+	locations, err := locationsRepo.ListLocations(ctx, location.LocationFilter{})
+	if err != nil {
+		return fmt.Errorf("failed to list locations: %w", err)
+	}
+
+	for _, loc := range locations {
+		locationMap.Store(loc.PlanningCenterID, loc.ID)
+	}
+
+	go func() {
+		// Refresh the data every 5 minutes
+		for range time.Tick(5 * time.Minute) {
+			locations, err := locationsRepo.ListLocations(ctx, location.LocationFilter{})
+			if err != nil {
+				slog.ErrorContext(ctx, "could not fetch locations", "error", err)
+				continue
+			}
+
+			for _, loc := range locations {
+				locationMap.Store(loc.PlanningCenterID, loc.ID)
+			}
+		}
+	}()
+
+	for {
+		if ctx.Err() != nil {
+			break
+		}
+
+		slog.Info("checking for events that need updating")
+
+		err = eventCheckoutLoop(ctx, eventRepo, checkinRepo, pcClient, &locationMap, eventUpdateInterval)
+		if err != nil {
+			if ctx.Err() != nil {
+				break
+			}
+			return fmt.Errorf("failed to eventCheckoutLoop: %w", err)
+		}
+
+		time.Sleep(interval)
+	}
+
+	return nil
+}
+
+func eventCheckoutLoop(ctx context.Context, eventRepo event.Repo, checkinRepo checkin.Repo, pcClient planningcenter.Client, locationIDMap *sync.Map, eventUpdateInterval time.Duration) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
+	autoFetch := true
+	events, err := eventRepo.ListEvents(ctx, event.EventFilter{
+		AutoFetch: &autoFetch,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to list events: %w", err)
+	}
+
+	var eventsToUpdate []event.Event
+	now := time.Now()
+	for _, ev := range events {
+		if ev.LastCheckedOutTime.IsZero() || now.Sub(ev.LastCheckedOutTime) >= eventUpdateInterval {
+			eventsToUpdate = append(eventsToUpdate, ev)
+		}
+	}
+
+	if len(eventsToUpdate) == 0 {
+		slog.Info("no events need updating")
+		return nil
+	}
+
+	slog.Info("processing events that need updating", slog.Int("total_events", len(events)), slog.Int("events_to_update", len(eventsToUpdate)))
+
+	var (
+		wg           sync.WaitGroup
+		errs         []error
+		errMu        sync.Mutex
+		sem          = make(chan struct{}, 5)
+		errCh        = make(chan error, len(eventsToUpdate))
+		eventMutexes sync.Map
+	)
+
+	for _, ev := range eventsToUpdate {
+		select {
+		case <-ctx.Done():
+			errMu.Lock()
+			errs = append(errs, ctx.Err())
+			errMu.Unlock()
+			break
+		case sem <- struct{}{}:
+			wg.Add(1)
+			go func(ev event.Event) {
+				defer wg.Done()
+				defer func() { <-sem }()
+				processEventCheckouts(ctx, ev, checkinRepo, eventRepo, pcClient, locationIDMap, &eventMutexes, errCh)
+			}(ev)
+		}
+	}
+
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		errMu.Lock()
+		errs = append(errs, err)
+		errMu.Unlock()
+	}
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+
+	return nil
+}
+
+func getEventMutex(m *sync.Map, eventID int64) *sync.Mutex {
+	mu, _ := m.LoadOrStore(eventID, &sync.Mutex{})
+	return mu.(*sync.Mutex)
+}
+
+func processEventCheckouts(ctx context.Context, ev event.Event, checkinRepo checkin.Repo, eventRepo event.Repo, pcClient planningcenter.Client, locationIDMap *sync.Map, eventMutexes *sync.Map, errCh chan<- error) {
+	mu := getEventMutex(eventMutexes, ev.ID)
+	mu.Lock()
+	defer mu.Unlock()
+
+	currentEvent, err := eventRepo.GetEventByID(ctx, ev.ID)
+	if err != nil {
+		errCh <- fmt.Errorf("failed to get event %d: %w", ev.ID, err)
+		return
+	}
+
+	timeToUse := currentEvent.LastCheckedOutTime
+	if timeToUse.Before(time.Now().Add(getLookBackTime())) {
+		timeToUse = time.Now().Add(getLookBackTime())
+	}
+
+	checkouts, err := pcClient.GetCheckoutsForEvent(ctx, currentEvent.PlanningCenterID, timeToUse, 0)
+
+	if err != nil {
+		var timeoutErr *planningcenter.TimeoutError
+		if errors.As(err, &timeoutErr) {
+			slog.Warn("timeout fetching checkouts for event", slog.String("event_id", currentEvent.PlanningCenterID), slog.String("error", err.Error()))
+			return
+		}
+		errCh <- fmt.Errorf("failed to fetch checkouts for event %s: %w", currentEvent.PlanningCenterID, err)
+		return
+	}
+	slog.Info("fetched checkouts for event", slog.String("event_id", currentEvent.PlanningCenterID), slog.Int("checkouts_count", len(checkouts)))
+
+	for _, checkout := range checkouts {
+		locationIDA, found := locationIDMap.Load(checkout.PlanningCenterLocationID)
+		if !found {
+			slog.ErrorContext(ctx, "could not find location by planning center id in map", "checkout_pc_id", checkout.PlanningCenterLocationID)
+			continue
+		}
+
+		co := checkin.Checkin{
+			PlanningCenterID: checkout.ID,
+			LocationID:       locationIDA.(int64),
+			EventID:          currentEvent.ID,
+			FirstName:        checkout.FirstName,
+			LastName:         checkout.LastName,
+			SecurityCode:     checkout.SecurityCode,
+			CheckedOutAt:     checkout.CheckedOutAt,
+		}
+
+		co, err := checkinRepo.CreateCheckin(ctx, co)
+		if err != nil {
+			errCh <- fmt.Errorf("failed to create checkin: %w", err)
+			return
+		}
+	}
+
+	newLastCheckedOut := time.Now().UTC()
+	updatedEvent := event.Event{
+		ID:                 currentEvent.ID,
+		Name:               currentEvent.Name,
+		PlanningCenterID:   currentEvent.PlanningCenterID,
+		AutoFetch:          currentEvent.AutoFetch,
+		LastCheckedOutTime: newLastCheckedOut,
+		LocationGroupID:    currentEvent.LocationGroupID,
+	}
+
+	err = eventRepo.UpdateEvent(ctx, updatedEvent)
+	if err != nil {
+		errCh <- fmt.Errorf("failed to update event %d: %w", currentEvent.ID, err)
+		return
+	}
+
+	currentEvent.LastCheckedOutTime = newLastCheckedOut
 }
 
 func checkoutLoop(ctx context.Context, locationRepo location.Repo, checkinRepo checkin.Repo, pcClient planningcenter.Client, locationUpdateInterval time.Duration) error {
@@ -168,8 +407,6 @@ func processLocationCheckouts(ctx context.Context, loc location.Location, checki
 	}
 	slog.Info("fetched checkouts for location", slog.String("location_id", loc.PlanningCenterID), slog.Int("checkouts_count", len(checkouts)))
 
-	lastCheckedOutTimeUnix := time.Time{}.Unix()
-
 	for _, checkout := range checkouts {
 		co := checkin.Checkin{
 			PlanningCenterID: checkout.ID,
@@ -185,8 +422,6 @@ func processLocationCheckouts(ctx context.Context, loc location.Location, checki
 			errCh <- fmt.Errorf("failed to create checkin: %w", err)
 			return
 		}
-
-		lastCheckedOutTimeUnix = max(lastCheckedOutTimeUnix, co.CheckedOutAt.Unix())
 	}
 
 	// Set the last_checked_out_time to current time to track when this location was last processed
@@ -221,13 +456,14 @@ var getLookBackTime = sync.OnceValue(func() time.Duration {
 	return lb
 })
 
-func getClients(db *sql.DB) (planningcenter.Client, checkin.Repo, location.Repo) {
+func getClients(db *sql.DB) (planningcenter.Client, checkin.Repo, location.Repo, event.Repo) {
 	if strings.ToLower(os.Getenv("CHECKOUT_FETCHER_USE_MOCK")) != "true" {
-		return planningcenter.NewClient(), checkin.NewRepo(db), location.NewRepo(db)
+		return planningcenter.NewClient(), checkin.NewRepo(db), location.NewRepo(db), event.NewRepo(db)
 	}
 
 	locationsRepo := location.NewRepo(db)
 	checkinRepo := checkin.NewRepo(db)
+	eventRepo := event.NewRepo(db)
 
 	var pcClient planningcenter.Client = &planningcenter.MockClient{
 		GetCheckoutsForLocationFunc: func(ctx context.Context, locationID string, olderThan time.Time) ([]planningcenter.Checkout, error) {
@@ -258,16 +494,51 @@ func getClients(db *sql.DB) (planningcenter.Client, checkin.Repo, location.Repo)
 				}
 			}
 
+			locations, err := locationsRepo.ListLocations(ctx, location.LocationFilter{})
+			if err != nil {
+				return nil, err
+			}
+
+			var locID string
+			if len(locations) > 0 {
+				loc := locations[rand.Intn(len(locations))]
+				locID = loc.PlanningCenterID
+			}
+
 			return []planningcenter.Checkout{
 				{
-					ID:           "pcloc_" + uuid.New().String(),
-					FirstName:    static.RandomFirstName(),
-					LastName:     static.RandomLastName(),
-					SecurityCode: strings.ToUpper(uuid.New().String()[:4]),
+					ID:                       "pcloc_" + uuid.New().String(),
+					FirstName:                static.RandomFirstName(),
+					LastName:                 static.RandomLastName(),
+					SecurityCode:             strings.ToUpper(uuid.New().String()[:4]),
+					PlanningCenterLocationID: locID,
+				},
+			}, nil
+		},
+		GetCheckoutsForEventFunc: func(ctx context.Context, eventID string, checkedOutOnOrAfter time.Time, limit int) ([]planningcenter.Checkout, error) {
+			locations, err := locationsRepo.ListLocations(ctx, location.LocationFilter{})
+			if err != nil {
+				return nil, err
+			}
+
+			var locID string
+			if len(locations) > 0 {
+				loc := locations[rand.Intn(len(locations))]
+				locID = loc.PlanningCenterID
+			}
+
+			return []planningcenter.Checkout{
+				{
+					ID:                       "pccheckoutevent_" + uuid.New().String(),
+					FirstName:                static.RandomFirstName(),
+					LastName:                 static.RandomLastName(),
+					SecurityCode:             strings.ToUpper(uuid.New().String()[:4]),
+					CheckedOutAt:             time.Now().UTC(),
+					PlanningCenterLocationID: locID,
 				},
 			}, nil
 		},
 	}
 
-	return pcClient, checkinRepo, locationsRepo
+	return pcClient, checkinRepo, locationsRepo, eventRepo
 }

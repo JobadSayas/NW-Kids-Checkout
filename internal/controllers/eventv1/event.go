@@ -1,11 +1,13 @@
 package eventv1
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"log/slog"
 	"strconv"
+	"time"
 
 	"kids-checkin/internal/actions/eventlocation"
 	"kids-checkin/internal/client/planningcenter"
@@ -48,6 +50,7 @@ func (controller *Controller) RegisterRoutes(app *fiber.App) {
 	adminGroup.Use(middleware.AuthRequired(controller.sessionStore, "admin"))
 	adminGroup.Get("/lookup", controller.GetEventByPlanningCenterID)
 	adminGroup.Post("", controller.PostCreateEvent)
+	adminGroup.Patch("/:id", controller.PatchUpdateEvent)
 
 	adminGroup.Get("/:eventId/check-windows", controller.GetEventCheckWindows)
 	adminGroup.Post("/:eventId/check-windows", controller.PostCreateCheckWindow)
@@ -56,7 +59,7 @@ func (controller *Controller) RegisterRoutes(app *fiber.App) {
 }
 
 func (controller *Controller) ListEvents(c *fiber.Ctx) error {
-	events, err := controller.repo.ListEvents(c.Context())
+	events, err := controller.repo.ListEvents(c.Context(), event.EventFilter{})
 	if err != nil {
 		return err
 	}
@@ -166,10 +169,62 @@ func (controller *Controller) GetEventByPlanningCenterID(c *fiber.Ctx) error {
 	return c.JSON(repoEventToOutput(result))
 }
 
+func (controller *Controller) PatchUpdateEvent(c *fiber.Ctx) error {
+	eventID, err := strconv.ParseInt(c.Params("id"), 10, 64)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid event id")
+	}
+
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(c.Body(), &payload); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid JSON")
+	}
+
+	current, err := controller.repo.GetEventByID(c.Context(), eventID)
+	if err != nil {
+		if errors.Is(err, repo.ErrNotFound) {
+			return fiber.NewError(fiber.StatusNotFound, "event not found")
+		}
+		return err
+	}
+
+	if raw, ok := payload["location_group_id"]; ok {
+		if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+			current.LocationGroupID = nil
+		} else {
+			var groupID int64
+			if err := json.Unmarshal(raw, &groupID); err != nil {
+				return fiber.NewError(fiber.StatusBadRequest, "invalid location_group_id")
+			}
+			current.LocationGroupID = &groupID
+		}
+	}
+
+	if raw, ok := payload["auto_fetch"]; ok {
+		var autoFetch bool
+		if err := json.Unmarshal(raw, &autoFetch); err != nil {
+			return fiber.NewError(fiber.StatusBadRequest, "invalid auto_fetch")
+		}
+		current.AutoFetch = autoFetch
+	}
+
+	if err := controller.repo.UpdateEvent(c.Context(), current); err != nil {
+		if errors.Is(err, repo.ErrNotFound) {
+			return fiber.NewError(fiber.StatusNotFound, "event not found")
+		}
+		return err
+	}
+
+	return c.JSON(repoEventToOutput(current))
+}
+
 type Event struct {
-	ID               int64  `json:"id"`
-	Name             string `json:"name"`
-	PlanningCenterID string `json:"planning_center_id"`
+	ID                 int64     `json:"id"`
+	Name               string    `json:"name"`
+	PlanningCenterID   string    `json:"planning_center_id"`
+	AutoFetch          bool      `json:"auto_fetch"`
+	LastCheckedOutTime time.Time `json:"last_checked_out_time"`
+	LocationGroupID    *int64    `json:"location_group_id"`
 }
 
 type EventInput struct {
@@ -178,9 +233,12 @@ type EventInput struct {
 
 func repoEventToOutput(event event.Event) Event {
 	return Event{
-		ID:               event.ID,
-		Name:             event.Name,
-		PlanningCenterID: event.PlanningCenterID,
+		ID:                 event.ID,
+		Name:               event.Name,
+		PlanningCenterID:   event.PlanningCenterID,
+		AutoFetch:          event.AutoFetch,
+		LastCheckedOutTime: event.LastCheckedOutTime,
+		LocationGroupID:    event.LocationGroupID,
 	}
 }
 

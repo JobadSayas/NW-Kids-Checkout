@@ -310,6 +310,44 @@ func Test_sqliteRepo_CreateCheckin_ConflictUpdatesCheckedOutAt(t *testing.T) {
 	assert.Equal(t, updatedConfirmed, checkins[0].CheckedOutConfirmedAt)
 }
 
+func Test_sqliteRepo_CreateCheckin_ConflictPreservesExistingEventIDWhenUnset(t *testing.T) {
+	s := NewRepo(testDB)
+	_, err := squirrel.Delete("checkins").RunWith(testDB).ExecContext(t.Context())
+	require.NoError(t, err)
+
+	start := time.Date(2022, 1, 1, 12, 0, 0, 0, time.UTC)
+	updated := start.Add(2 * time.Hour)
+
+	_, err = s.CreateCheckin(t.Context(), Checkin{
+		PlanningCenterID:      "plc_event_conflict",
+		LocationID:            1,
+		EventID:               7,
+		FirstName:             "first",
+		LastName:              "last",
+		SecurityCode:          "ABC123",
+		CheckedOutAt:          start,
+		CheckedOutConfirmedAt: start.Add(10 * time.Minute),
+	})
+	require.NoError(t, err)
+
+	_, err = s.CreateCheckin(t.Context(), Checkin{
+		PlanningCenterID:      "plc_event_conflict",
+		LocationID:            1,
+		FirstName:             "first",
+		LastName:              "last",
+		SecurityCode:          "ABC123",
+		CheckedOutAt:          updated,
+		CheckedOutConfirmedAt: updated.Add(10 * time.Minute),
+	})
+	require.NoError(t, err)
+
+	var eventID sql.NullInt64
+	err = testDB.QueryRowContext(t.Context(), "SELECT event_id FROM checkins WHERE planning_center_id = ?", "plc_event_conflict").Scan(&eventID)
+	require.NoError(t, err)
+	require.True(t, eventID.Valid)
+	assert.Equal(t, int64(7), eventID.Int64)
+}
+
 func Test_sqliteRepo_RemoveOldCheckins(t *testing.T) {
 	s := NewRepo(testDB)
 

@@ -47,7 +47,7 @@ func Test_sqliteRepo_ListLocations(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		locations, err := s.ListLocations(t.Context(), LocationFilter{ID: location.ID})
+		locations, err := s.ListLocations(t.Context(), LocationFilter{IDs: []int64{location.ID}})
 		require.NoError(t, err)
 		require.Len(t, locations, 1)
 		assert.Equal(t, location.ID, locations[0].ID)
@@ -150,7 +150,7 @@ func Test_sqliteRepo_CreateLocation(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		locations, err := s.ListLocations(t.Context(), LocationFilter{ID: location.ID})
+		locations, err := s.ListLocations(t.Context(), LocationFilter{IDs: []int64{location.ID}})
 		require.NoError(t, err)
 		require.Len(t, locations, 1)
 		assert.NotNil(t, locations[0].PlanningCenterParentID)
@@ -197,7 +197,7 @@ func Test_sqliteRepo_UpdateLocation(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	locations, err := s.ListLocations(t.Context(), LocationFilter{ID: location.ID})
+	locations, err := s.ListLocations(t.Context(), LocationFilter{IDs: []int64{location.ID}})
 	require.NoError(t, err)
 	require.Len(t, locations, 1)
 	assert.Equal(t, "Updated location", locations[0].Name)
@@ -241,7 +241,7 @@ func Test_sqliteRepo_DeleteLocation(t *testing.T) {
 	err = s.DeleteLocation(t.Context(), location.ID)
 	require.NoError(t, err)
 
-	locations, err := s.ListLocations(t.Context(), LocationFilter{ID: location.ID})
+	locations, err := s.ListLocations(t.Context(), LocationFilter{IDs: []int64{location.ID}})
 	require.NoError(t, err)
 	assert.Empty(t, locations)
 
@@ -273,6 +273,72 @@ func Test_sqliteRepo_ListLocationGroups(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, groups, 1)
 	assert.Equal(t, groupB.ID, groups[0].ID)
+}
+
+func Test_sqliteRepo_ListLocations_filter_by_multiple_IDs(t *testing.T) {
+	testDB, cleanup, err := db.PrepareTestDB()
+	require.NoError(t, err, "Failed to prepare test DB")
+	t.Cleanup(cleanup)
+	s := &sqliteRepo{db: testDB}
+
+	loc1, err := s.CreateLocation(t.Context(), Location{
+		PlanningCenterID: "pcloc_multi_1",
+		EventID:          1,
+		Name:             "Multi Location 1",
+	})
+	require.NoError(t, err)
+
+	loc2, err := s.CreateLocation(t.Context(), Location{
+		PlanningCenterID: "pcloc_multi_2",
+		EventID:          1,
+		Name:             "Multi Location 2",
+	})
+	require.NoError(t, err)
+
+	loc3, err := s.CreateLocation(t.Context(), Location{
+		PlanningCenterID: "pcloc_multi_3",
+		EventID:          1,
+		Name:             "Multi Location 3",
+	})
+	require.NoError(t, err)
+
+	t.Run("filter by single id", func(t *testing.T) {
+		locations, err := s.ListLocations(t.Context(), LocationFilter{IDs: []int64{loc1.ID}})
+		require.NoError(t, err)
+		require.Len(t, locations, 1)
+		assert.Equal(t, loc1.ID, locations[0].ID)
+	})
+
+	t.Run("filter by multiple ids", func(t *testing.T) {
+		locations, err := s.ListLocations(t.Context(), LocationFilter{IDs: []int64{loc1.ID, loc2.ID}})
+		require.NoError(t, err)
+		require.Len(t, locations, 2)
+
+		idMap := map[int64]bool{
+			locations[0].ID: true,
+			locations[1].ID: true,
+		}
+		assert.True(t, idMap[loc1.ID])
+		assert.True(t, idMap[loc2.ID])
+	})
+
+	t.Run("filter by three ids", func(t *testing.T) {
+		locations, err := s.ListLocations(t.Context(), LocationFilter{IDs: []int64{loc1.ID, loc2.ID, loc3.ID}})
+		require.NoError(t, err)
+		require.Len(t, locations, 3)
+	})
+
+	t.Run("filter by empty ids returns all", func(t *testing.T) {
+		locations, err := s.ListLocations(t.Context(), LocationFilter{IDs: []int64{}})
+		require.NoError(t, err)
+		assert.GreaterOrEqual(t, len(locations), 3)
+	})
+
+	t.Run("filter by non-existent ids returns empty", func(t *testing.T) {
+		locations, err := s.ListLocations(t.Context(), LocationFilter{IDs: []int64{9999, 9998}})
+		require.NoError(t, err)
+		assert.Len(t, locations, 0)
+	})
 }
 
 func Test_sqliteRepo_CreateLocationGroup(t *testing.T) {

@@ -264,6 +264,111 @@ func (client *defaultClient) GetCheckoutsForLocation(ctx context.Context, locati
 	return data, nil
 }
 
+func (client *defaultClient) GetCheckoutsForEvent(ctx context.Context, eventID string, checkedOutOnOrAfter time.Time, limit int) ([]Checkout, error) {
+	if checkedOutOnOrAfter.IsZero() && limit == 0 {
+		return nil, errors.New("checked_out_on_or_after and limit cannot both be empty")
+	}
+
+	data := make([]Checkout, 0)
+	iterations := 0
+
+	getURL, err := url.JoinPath(client.baseURL, "check-ins", "v2", "events", eventID, "check_ins")
+	if err != nil {
+		return nil, err
+	}
+
+	q := url.Values{}
+	q.Add("filter", "checked_out")
+	q.Add("order", "-checked_out_at")
+	q.Add("include", "locations")
+
+	if limit > 0 {
+		q.Add("per_page", strconv.Itoa(min(limit, 25)))
+	}
+
+	getURL += "?" + q.Encode()
+
+	done := false
+
+	slog.Info("getting checkins for event", slog.String("event_id", eventID), slog.String("checked_out_on_or_after", checkedOutOnOrAfter.Format(time.RFC3339)))
+
+	for {
+		iterations++
+		if iterations >= 10 {
+			break
+		}
+		err := func() error {
+			if ctx.Err() != nil {
+				done = true
+				return nil
+			}
+
+			defer func(start time.Time) {
+				slog.Info("got checkins for event", slog.String("event_id", eventID), slog.Int64("duration_ms", time.Since(start).Milliseconds()))
+			}(time.Now())
+
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, getURL, nil)
+			if err != nil {
+				return err
+			}
+
+			req.SetBasicAuth(client.clientID, client.secret)
+			req.Header.Set("Accept", "application/vnd.api+json")
+
+			resp, err := client.httpClient.Do(req)
+			if err != nil {
+				if errors.Is(err, context.DeadlineExceeded) {
+					return &TimeoutError{err}
+				}
+				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					return &TimeoutError{err}
+				}
+				return err
+			}
+
+			defer resp.Body.Close()
+
+			by, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return err
+			}
+
+			if resp.StatusCode == http.StatusNotFound {
+				return nil
+			}
+
+			decoded := checkinResponse{}
+			err = json.Unmarshal(by, &decoded)
+			if err != nil {
+				return err
+			}
+
+			var td []Checkout
+			td, done = getFilteredResults(decoded, checkedOutOnOrAfter, limit)
+			if len(td) > 0 {
+				data = append(data, td...)
+			}
+			if done {
+				return nil
+			}
+
+			getURL = decoded.Links.Next
+			if getURL == "" {
+				done = true
+			}
+
+			return nil
+		}()
+		if err != nil {
+			return nil, err
+		}
+		if done {
+			break
+		}
+	}
+	return data, nil
+}
+
 func (client *defaultClient) GetLocation(ctx context.Context, locationID string, includeAssociatedLocations bool) ([]Location, error) {
 	getURL, err := url.JoinPath(client.baseURL, "check-ins", "v2", "locations", locationID)
 	if err != nil {
@@ -432,12 +537,19 @@ func getFilteredResults(decoded checkinResponse, checkedOutOnOrAfter time.Time, 
 			done = true
 			return
 		}
+
+		plLocationID := ""
+		if len(item.Relationships.Locations.Data) != 0 {
+			plLocationID = item.Relationships.Locations.Data[0].ID
+		}
+
 		data = append(data, Checkout{
-			ID:           item.ID,
-			FirstName:    item.Attributes.FirstName,
-			LastName:     item.Attributes.LastName,
-			CheckedOutAt: item.Attributes.CheckedOutAt,
-			SecurityCode: item.Attributes.SecurityCode,
+			ID:                       item.ID,
+			FirstName:                item.Attributes.FirstName,
+			LastName:                 item.Attributes.LastName,
+			CheckedOutAt:             item.Attributes.CheckedOutAt,
+			SecurityCode:             item.Attributes.SecurityCode,
+			PlanningCenterLocationID: plLocationID,
 		})
 		if limit > 0 && len(data) >= limit {
 			done = true

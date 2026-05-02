@@ -100,7 +100,7 @@ func Test_sqliteRepo_CreateEvent(t *testing.T) {
 	})
 }
 
-func Test_sqliteRepo_UpdateEventName(t *testing.T) {
+func Test_sqliteRepo_UpdateEvent(t *testing.T) {
 	testDB, cleanup, err := db.PrepareTestDB()
 	require.NoError(t, err, "Failed to prepare test DB")
 	t.Cleanup(cleanup)
@@ -115,13 +115,113 @@ func Test_sqliteRepo_UpdateEventName(t *testing.T) {
 	require.NoError(t, err)
 	insertedID, _ := res.LastInsertId()
 
-	err = eventRepo.UpdateEventName(t.Context(), insertedID, "Updated Name")
+	err = eventRepo.UpdateEvent(t.Context(), Event{
+		ID:               insertedID,
+		Name:             "Updated Name",
+		PlanningCenterID: "pc_evt_99",
+		AutoFetch:        true,
+	})
 	require.NoError(t, err)
 
 	loaded, err := eventRepo.GetEventByID(t.Context(), insertedID)
 	require.NoError(t, err)
 	assert.Equal(t, "Updated Name", loaded.Name)
+	assert.True(t, loaded.AutoFetch)
 
-	err = eventRepo.UpdateEventName(t.Context(), 9999, "Missing")
+	err = eventRepo.UpdateEvent(t.Context(), Event{
+		ID:               9999,
+		Name:             "Missing",
+		PlanningCenterID: "pc_evt_999",
+	})
 	assert.ErrorIs(t, err, repo.ErrNotFound)
+}
+
+func Test_sqliteRepo_ListEvents_filter_by_AutoFetch(t *testing.T) {
+	testDB, cleanup, err := db.PrepareTestDB()
+	require.NoError(t, err, "Failed to prepare test DB")
+	t.Cleanup(cleanup)
+
+	eventRepo := NewRepo(testDB)
+
+	_, err = eventRepo.CreateEvent(t.Context(), Event{Name: "Event 1", PlanningCenterID: "pc_evt_list_1"})
+	require.NoError(t, err)
+	_, err = eventRepo.CreateEvent(t.Context(), Event{Name: "Event 2", PlanningCenterID: "pc_evt_list_2", AutoFetch: true})
+	require.NoError(t, err)
+	_, err = eventRepo.CreateEvent(t.Context(), Event{Name: "Event 3", PlanningCenterID: "pc_evt_list_3", AutoFetch: true})
+	require.NoError(t, err)
+
+	t.Run("filter by auto_fetch true", func(t *testing.T) {
+		autoFetch := true
+		events, err := eventRepo.ListEvents(t.Context(), EventFilter{AutoFetch: &autoFetch})
+		require.NoError(t, err)
+		require.Len(t, events, 2)
+		for _, e := range events {
+			assert.True(t, e.AutoFetch)
+		}
+	})
+
+	t.Run("filter by auto_fetch false", func(t *testing.T) {
+		autoFetch := false
+		events, err := eventRepo.ListEvents(t.Context(), EventFilter{AutoFetch: &autoFetch})
+		require.NoError(t, err)
+		require.Len(t, events, 1)
+		assert.False(t, events[0].AutoFetch)
+	})
+
+	t.Run("no filter returns all", func(t *testing.T) {
+		events, err := eventRepo.ListEvents(t.Context(), EventFilter{})
+		require.NoError(t, err)
+		require.Len(t, events, 3)
+	})
+}
+
+func Test_sqliteRepo_ListEvents_filter_by_LocationGroupID(t *testing.T) {
+	testDB, cleanup, err := db.PrepareTestDB()
+	require.NoError(t, err, "Failed to prepare test DB")
+	t.Cleanup(cleanup)
+
+	eventRepo := NewRepo(testDB)
+
+	groupRes, err := squirrel.Insert("location_groups").
+		RunWith(testDB).
+		Columns("name").
+		Values("Nursery").
+		ExecContext(t.Context())
+	require.NoError(t, err)
+	groupID, _ := groupRes.LastInsertId()
+
+	_, err = eventRepo.CreateEvent(t.Context(), Event{
+		Name:             "Event 1",
+		PlanningCenterID: "pc_evt_group_1",
+		LocationGroupID: &groupID,
+	})
+	require.NoError(t, err)
+	_, err = eventRepo.CreateEvent(t.Context(), Event{
+		Name:             "Event 2",
+		PlanningCenterID: "pc_evt_group_2",
+		LocationGroupID: &groupID,
+	})
+	require.NoError(t, err)
+	_, err = eventRepo.CreateEvent(t.Context(), Event{
+		Name:             "Event 3",
+		PlanningCenterID: "pc_evt_group_3",
+	})
+	require.NoError(t, err)
+
+	t.Run("filter by location_group_id", func(t *testing.T) {
+		events, err := eventRepo.ListEvents(t.Context(), EventFilter{LocationGroupID: &groupID})
+		require.NoError(t, err)
+		require.Len(t, events, 2)
+		for _, e := range events {
+			require.NotNil(t, e.LocationGroupID)
+			assert.Equal(t, groupID, *e.LocationGroupID)
+		}
+	})
+
+	t.Run("filter by non_existent group returns empty", func(t *testing.T) {
+		nonExistentGroupID := int64(9999)
+		events, err := eventRepo.ListEvents(t.Context(), EventFilter{LocationGroupID: &nonExistentGroupID})
+		require.NoError(t, err)
+		assert.Len(t, events, 0)
+	})
 }

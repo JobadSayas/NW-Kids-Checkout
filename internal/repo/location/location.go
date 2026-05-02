@@ -13,7 +13,7 @@ import (
 )
 
 type LocationFilter struct {
-	ID               int64
+	IDs              []int64
 	PlanningCenterID string
 	LocationGroupID  int64
 	EventID          int64
@@ -122,8 +122,8 @@ func (r *sqliteRepo) ListLocations(ctx context.Context, filter LocationFilter) (
 		From("locations").
 		RunWith(r.db)
 
-	if filter.ID > 0 {
-		builder = builder.Where(squirrel.Eq{"id": filter.ID})
+	if len(filter.IDs) > 0 {
+		builder = builder.Where(squirrel.Eq{"id": filter.IDs})
 	}
 
 	if filter.PlanningCenterID != "" {

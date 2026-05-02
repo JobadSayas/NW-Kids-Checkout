@@ -32,7 +32,15 @@ func CreateEventWithLocations(ctx context.Context, db *sql.DB, newEvent event.Ev
 		} else {
 			createdEvent = existingEvent
 			if newEvent.Name != "" && newEvent.Name != existingEvent.Name {
-				if err := eventRepo.UpdateEventName(ctx, existingEvent.ID, newEvent.Name); err != nil {
+				err := eventRepo.UpdateEvent(ctx, event.Event{
+					ID:                 existingEvent.ID,
+					Name:               newEvent.Name,
+					PlanningCenterID:   existingEvent.PlanningCenterID,
+					AutoFetch:          existingEvent.AutoFetch,
+					LastCheckedOutTime: existingEvent.LastCheckedOutTime,
+					LocationGroupID:    existingEvent.LocationGroupID,
+				})
+				if err != nil {
 					return err
 				}
 				createdEvent.Name = newEvent.Name

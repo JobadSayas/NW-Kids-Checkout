@@ -30,6 +30,7 @@ type Checkin struct {
 	ID                    int64
 	PlanningCenterID      string
 	LocationID            int64
+	EventID               int64
 	FirstName             string
 	LastName              string
 	SecurityCode          string
@@ -182,11 +183,23 @@ func (s *sqliteRepo) CreateCheckin(ctx context.Context, checkin Checkin) (Checki
 		checkedOutConfirmedAt = &tt
 	}
 
+	columns := []string{"planning_center_id", "location_id", "first_name", "last_name", "security_code", "checked_out_at", "checked_out_confirmed_at"}
+	values := []any{checkin.PlanningCenterID, checkin.LocationID, checkin.FirstName, checkin.LastName, checkin.SecurityCode, checkedOutAt, checkedOutConfirmedAt}
+	if checkin.EventID > 0 {
+		columns = append(columns, "event_id")
+		values = append(values, checkin.EventID)
+	}
+
+	conflictSuffix := squirrel.Expr("ON CONFLICT(planning_center_id) DO UPDATE SET checked_out_at = ?, checked_out_confirmed_at = ?", checkedOutAt, checkedOutConfirmedAt)
+	if checkin.EventID > 0 {
+		conflictSuffix = squirrel.Expr("ON CONFLICT(planning_center_id) DO UPDATE SET checked_out_at = ?, checked_out_confirmed_at = ?, event_id = ?", checkedOutAt, checkedOutConfirmedAt, checkin.EventID)
+	}
+
 	builder := squirrel.Insert("checkins").
 		RunWith(s.db).
-		Columns("planning_center_id", "location_id", "first_name", "last_name", "security_code", "checked_out_at", "checked_out_confirmed_at").
-		Values(checkin.PlanningCenterID, checkin.LocationID, checkin.FirstName, checkin.LastName, checkin.SecurityCode, checkedOutAt, checkedOutConfirmedAt).
-		SuffixExpr(squirrel.Expr("ON CONFLICT(planning_center_id) DO UPDATE SET checked_out_at = ?, checked_out_confirmed_at = ?", checkedOutAt, checkedOutConfirmedAt))
+		Columns(columns...).
+		Values(values...).
+		SuffixExpr(conflictSuffix)
 
 	res, err := builder.ExecContext(ctx)
 	if err != nil {

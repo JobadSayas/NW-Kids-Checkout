@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"kids-checkin/internal/repo"
 
@@ -12,18 +13,29 @@ import (
 	"github.com/mattn/go-sqlite3"
 )
 
-type Event struct {
+type EventFilter struct {
 	ID               int64
 	Name             string
 	PlanningCenterID string
+	AutoFetch        *bool
+	LocationGroupID  *int64
+}
+
+type Event struct {
+	ID                 int64
+	Name               string
+	PlanningCenterID   string
+	AutoFetch          bool
+	LastCheckedOutTime time.Time
+	LocationGroupID    *int64
 }
 
 type Repo interface {
 	GetEventByID(ctx context.Context, id int64) (Event, error)
 	GetEventByPlanningCenterID(ctx context.Context, planningCenterID string) (Event, error)
-	ListEvents(ctx context.Context) ([]Event, error)
+	ListEvents(ctx context.Context, filter EventFilter) ([]Event, error)
 	CreateEvent(ctx context.Context, event Event) (Event, error)
-	UpdateEventName(ctx context.Context, id int64, name string) error
+	UpdateEvent(ctx context.Context, event Event) error
 }
 
 type sqliteRepo struct {
@@ -40,19 +52,27 @@ func NewRepo(db repo.DBTX) Repo {
 
 func (r *sqliteRepo) GetEventByID(ctx context.Context, id int64) (Event, error) {
 	builder := squirrel.
-		Select("id", "name", "planning_center_id").
+		Select("id", "name", "planning_center_id", "auto_fetch", "last_checked_out_time", "location_group_id").
 		From("events").
 		Where(squirrel.Eq{"id": id}).
 		Limit(1).
 		RunWith(r.db)
 
 	var event Event
-	err := builder.QueryRowContext(ctx).Scan(&event.ID, &event.Name, &event.PlanningCenterID)
+	var lastCheckedOutSQL sql.NullTime
+	var locationGroupIDSQL sql.NullInt64
+	err := builder.QueryRowContext(ctx).Scan(&event.ID, &event.Name, &event.PlanningCenterID, &event.AutoFetch, &lastCheckedOutSQL, &locationGroupIDSQL)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Event{}, repo.ErrNotFound
 		}
 		return Event{}, fmt.Errorf("querying event: %w", err)
+	}
+	if lastCheckedOutSQL.Valid {
+		event.LastCheckedOutTime = lastCheckedOutSQL.Time
+	}
+	if locationGroupIDSQL.Valid {
+		event.LocationGroupID = &locationGroupIDSQL.Int64
 	}
 
 	return event, nil
@@ -60,30 +80,58 @@ func (r *sqliteRepo) GetEventByID(ctx context.Context, id int64) (Event, error) 
 
 func (r *sqliteRepo) GetEventByPlanningCenterID(ctx context.Context, planningCenterID string) (Event, error) {
 	builder := squirrel.
-		Select("id", "name", "planning_center_id").
+		Select("id", "name", "planning_center_id", "auto_fetch", "last_checked_out_time", "location_group_id").
 		From("events").
 		Where(squirrel.Eq{"planning_center_id": planningCenterID}).
 		Limit(1).
 		RunWith(r.db)
 
 	var event Event
-	err := builder.QueryRowContext(ctx).Scan(&event.ID, &event.Name, &event.PlanningCenterID)
+	var lastCheckedOutSQL sql.NullTime
+	var locationGroupIDSQL sql.NullInt64
+	err := builder.QueryRowContext(ctx).Scan(&event.ID, &event.Name, &event.PlanningCenterID, &event.AutoFetch, &lastCheckedOutSQL, &locationGroupIDSQL)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Event{}, repo.ErrNotFound
 		}
 		return Event{}, fmt.Errorf("querying event: %w", err)
 	}
+	if lastCheckedOutSQL.Valid {
+		event.LastCheckedOutTime = lastCheckedOutSQL.Time
+	}
+	if locationGroupIDSQL.Valid {
+		event.LocationGroupID = &locationGroupIDSQL.Int64
+	}
 
 	return event, nil
 }
 
-func (r *sqliteRepo) ListEvents(ctx context.Context) ([]Event, error) {
+func (r *sqliteRepo) ListEvents(ctx context.Context, filter EventFilter) ([]Event, error) {
 	builder := squirrel.
-		Select("id", "name", "planning_center_id").
+		Select("id", "name", "planning_center_id", "auto_fetch", "last_checked_out_time", "location_group_id").
 		From("events").
 		OrderBy("name").
 		RunWith(r.db)
+
+	if filter.ID > 0 {
+		builder = builder.Where(squirrel.Eq{"id": filter.ID})
+	}
+
+	if filter.Name != "" {
+		builder = builder.Where(squirrel.Eq{"name": filter.Name})
+	}
+
+	if filter.PlanningCenterID != "" {
+		builder = builder.Where(squirrel.Eq{"planning_center_id": filter.PlanningCenterID})
+	}
+
+	if filter.AutoFetch != nil {
+		builder = builder.Where(squirrel.Eq{"auto_fetch": *filter.AutoFetch})
+	}
+
+	if filter.LocationGroupID != nil {
+		builder = builder.Where(squirrel.Eq{"location_group_id": *filter.LocationGroupID})
+	}
 
 	rows, err := builder.QueryContext(ctx)
 	if err != nil {
@@ -94,9 +142,17 @@ func (r *sqliteRepo) ListEvents(ctx context.Context) ([]Event, error) {
 	var events []Event
 	for rows.Next() {
 		var event Event
-		err := rows.Scan(&event.ID, &event.Name, &event.PlanningCenterID)
+		var lastCheckedOutSQL sql.NullTime
+		var locationGroupIDSQL sql.NullInt64
+		err := rows.Scan(&event.ID, &event.Name, &event.PlanningCenterID, &event.AutoFetch, &lastCheckedOutSQL, &locationGroupIDSQL)
 		if err != nil {
 			return nil, fmt.Errorf("scanning event: %w", err)
+		}
+		if lastCheckedOutSQL.Valid {
+			event.LastCheckedOutTime = lastCheckedOutSQL.Time
+		}
+		if locationGroupIDSQL.Valid {
+			event.LocationGroupID = &locationGroupIDSQL.Int64
 		}
 		events = append(events, event)
 	}
@@ -105,11 +161,24 @@ func (r *sqliteRepo) ListEvents(ctx context.Context) ([]Event, error) {
 }
 
 func (r *sqliteRepo) CreateEvent(ctx context.Context, event Event) (Event, error) {
+	columns := []string{"name", "planning_center_id"}
+	values := []any{event.Name, event.PlanningCenterID}
+
+	if event.AutoFetch {
+		columns = append(columns, "auto_fetch")
+		values = append(values, event.AutoFetch)
+	}
+
+	if event.LocationGroupID != nil {
+		columns = append(columns, "location_group_id")
+		values = append(values, *event.LocationGroupID)
+	}
+
 	builder := squirrel.
 		Insert("events").
 		RunWith(r.db).
-		Columns("name", "planning_center_id").
-		Values(event.Name, event.PlanningCenterID)
+		Columns(columns...).
+		Values(values...)
 
 	res, err := builder.ExecContext(ctx)
 	if err != nil {
@@ -129,12 +198,22 @@ func (r *sqliteRepo) CreateEvent(ctx context.Context, event Event) (Event, error
 	return event, nil
 }
 
-func (r *sqliteRepo) UpdateEventName(ctx context.Context, id int64, name string) error {
+func (r *sqliteRepo) UpdateEvent(ctx context.Context, event Event) error {
+	setMap := map[string]any{
+		"name":              event.Name,
+		"auto_fetch":        event.AutoFetch,
+		"location_group_id": event.LocationGroupID,
+	}
+
+	if !event.LastCheckedOutTime.IsZero() {
+		setMap["last_checked_out_time"] = event.LastCheckedOutTime.Format(time.RFC3339)
+	}
+
 	builder := squirrel.
 		Update("events").
 		RunWith(r.db).
-		Set("name", name).
-		Where(squirrel.Eq{"id": id})
+		SetMap(setMap).
+		Where(squirrel.Eq{"id": event.ID})
 
 	res, err := builder.ExecContext(ctx)
 	if err != nil {

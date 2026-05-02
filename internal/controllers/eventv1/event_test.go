@@ -487,3 +487,169 @@ func TestController_DeleteCheckWindow(t *testing.T) {
 		assert.Equal(t, fiber.StatusNotFound, resp.StatusCode)
 	})
 }
+
+func TestController_PatchUpdateEvent(t *testing.T) {
+	app, store := setupAuthedApp()
+
+	testDB, cleanup, err := db.PrepareTestDB()
+	require.NoError(t, err, "Failed to prepare test DB")
+	t.Cleanup(cleanup)
+
+	controller := NewController(testDB, store)
+	controller.RegisterRoutes(app)
+
+	eventRes, err := squirrel.Insert("events").
+		RunWith(testDB).
+		Columns("name", "planning_center_id", "auto_fetch").
+		Values("Sunday Service", "pc_evt_1", 0).
+		ExecContext(t.Context())
+	require.NoError(t, err)
+	eventID, _ := eventRes.LastInsertId()
+
+	t.Run("success update auto_fetch", func(t *testing.T) {
+		payload := map[string]interface{}{
+			"auto_fetch": true,
+		}
+		body, _ := json.Marshal(payload)
+
+		req := httptest.NewRequest("PATCH", fmt.Sprintf("/v1/admin/events/%d", eventID), bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		require.Equal(t, fiber.StatusOK, resp.StatusCode)
+
+		var updated Event
+		err = json.NewDecoder(resp.Body).Decode(&updated)
+		require.NoError(t, err)
+		assert.True(t, updated.AutoFetch)
+	})
+
+	t.Run("update auto_fetch to false", func(t *testing.T) {
+		payload := map[string]interface{}{
+			"auto_fetch": false,
+		}
+		body, _ := json.Marshal(payload)
+
+		req := httptest.NewRequest("PATCH", fmt.Sprintf("/v1/admin/events/%d", eventID), bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		require.Equal(t, fiber.StatusOK, resp.StatusCode)
+
+		var updated Event
+		err = json.NewDecoder(resp.Body).Decode(&updated)
+		require.NoError(t, err)
+		assert.False(t, updated.AutoFetch)
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		payload := map[string]interface{}{
+			"auto_fetch": true,
+		}
+		body, _ := json.Marshal(payload)
+
+		req := httptest.NewRequest("PATCH", "/v1/admin/events/9999", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		assert.Equal(t, fiber.StatusNotFound, resp.StatusCode)
+	})
+
+	t.Run("invalid event id", func(t *testing.T) {
+		payload := map[string]interface{}{
+			"auto_fetch": true,
+		}
+		body, _ := json.Marshal(payload)
+
+		req := httptest.NewRequest("PATCH", "/v1/admin/events/not-a-number", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		assert.Equal(t, fiber.StatusBadRequest, resp.StatusCode)
+	})
+
+	t.Run("invalid json", func(t *testing.T) {
+		req := httptest.NewRequest("PATCH", fmt.Sprintf("/v1/admin/events/%d", eventID), bytes.NewReader([]byte("not json")))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		assert.Equal(t, fiber.StatusBadRequest, resp.StatusCode)
+	})
+}
+
+func TestController_PatchUpdateEvent_withLocationGroup(t *testing.T) {
+	app, store := setupAuthedApp()
+
+	testDB, cleanup, err := db.PrepareTestDB()
+	require.NoError(t, err, "Failed to prepare test DB")
+	t.Cleanup(cleanup)
+
+	controller := NewController(testDB, store)
+	controller.RegisterRoutes(app)
+
+	groupRes, err := squirrel.Insert("location_groups").
+		RunWith(testDB).
+		Columns("name").
+		Values("Nursery").
+		ExecContext(t.Context())
+	require.NoError(t, err)
+	groupID, _ := groupRes.LastInsertId()
+
+	eventRes, err := squirrel.Insert("events").
+		RunWith(testDB).
+		Columns("name", "planning_center_id", "auto_fetch").
+		Values("Sunday Service", "pc_evt_1", 0).
+		ExecContext(t.Context())
+	require.NoError(t, err)
+	eventID, _ := eventRes.LastInsertId()
+
+	t.Run("set location_group_id", func(t *testing.T) {
+		payload := map[string]interface{}{
+			"location_group_id": groupID,
+		}
+		body, _ := json.Marshal(payload)
+
+		req := httptest.NewRequest("PATCH", fmt.Sprintf("/v1/admin/events/%d", eventID), bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		require.Equal(t, fiber.StatusOK, resp.StatusCode)
+
+		var updated Event
+		err = json.NewDecoder(resp.Body).Decode(&updated)
+		require.NoError(t, err)
+		require.NotNil(t, updated.LocationGroupID)
+		assert.Equal(t, groupID, *updated.LocationGroupID)
+	})
+
+	t.Run("clear location_group_id with null", func(t *testing.T) {
+		payload := map[string]interface{}{
+			"location_group_id": nil,
+		}
+		body, _ := json.Marshal(payload)
+
+		req := httptest.NewRequest("PATCH", fmt.Sprintf("/v1/admin/events/%d", eventID), bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		require.Equal(t, fiber.StatusOK, resp.StatusCode)
+
+		var updated Event
+		err = json.NewDecoder(resp.Body).Decode(&updated)
+		require.NoError(t, err)
+		assert.Nil(t, updated.LocationGroupID)
+	})
+
+	t.Run("invalid location_group_id", func(t *testing.T) {
+		payload := map[string]interface{}{
+			"location_group_id": "not-a-number",
+		}
+		body, _ := json.Marshal(payload)
+
+		req := httptest.NewRequest("PATCH", fmt.Sprintf("/v1/admin/events/%d", eventID), bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		assert.Equal(t, fiber.StatusBadRequest, resp.StatusCode)
+	})
+}

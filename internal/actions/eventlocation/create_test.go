@@ -59,6 +59,13 @@ func TestCreateEventWithLocations_SyncExisting(t *testing.T) {
 	groupID, _ := groupRes.LastInsertId()
 	require.NotZero(t, groupID)
 
+	_, err = squirrel.Update("events").
+		RunWith(testDB).
+		Set("location_group_id", groupID).
+		Where(squirrel.Eq{"id": insertedID}).
+		ExecContext(t.Context())
+	require.NoError(t, err)
+
 	lastCheckedOut := time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC)
 	_, err = squirrel.Insert("locations").
 		RunWith(testDB).
@@ -92,6 +99,8 @@ func TestCreateEventWithLocations_SyncExisting(t *testing.T) {
 	storedEvent, err := eventRepo.GetEventByID(t.Context(), insertedID)
 	require.NoError(t, err)
 	assert.Equal(t, "Family Service", storedEvent.Name)
+	require.NotNil(t, storedEvent.LocationGroupID)
+	assert.Equal(t, groupID, *storedEvent.LocationGroupID)
 
 	locRepo := location.NewRepo(testDB)
 	allLocations, err := locRepo.ListLocations(t.Context(), location.LocationFilter{EventID: insertedID})
