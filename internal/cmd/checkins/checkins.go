@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"kids-checkin/internal/db"
+	"kids-checkin/internal/logger"
 	"kids-checkin/internal/repo/checkin"
 	"kids-checkin/internal/repo/manualcheckin"
 
@@ -46,7 +47,10 @@ func deleteOlderThanCmd(ctx context.Context, cmd *cli.Command) error {
 
 	defer database.Close()
 
-	slog.InfoContext(ctx, "starting checkins delete-old", slog.Duration("age", olderThan), slog.String("db_file", dbFile))
+	ctx = logger.WithLogger(ctx, slog.With(slog.String("cmd", "checkins-delete-old")))
+	log := logger.FromContext(ctx)
+
+	log.InfoContext(ctx, "starting checkins delete-old", slog.Duration("age", olderThan), slog.String("db_file", dbFile))
 
 	checkinRepo := checkin.NewRepo(database)
 	deletedCount, err := checkinRepo.RemoveOldCheckins(ctx, time.Now().Add(olderThan))
@@ -54,14 +58,14 @@ func deleteOlderThanCmd(ctx context.Context, cmd *cli.Command) error {
 		return cli.Exit(err.Error(), 1)
 	}
 
-	slog.InfoContext(ctx, "deleted old checkins", slog.Int64("deleted_count", deletedCount), slog.Duration("older_than", olderThan))
+	log.InfoContext(ctx, "deleted old checkins", slog.Int64("deleted_count", deletedCount), slog.Duration("older_than", olderThan))
 
 	manualCheckinRepo := manualcheckin.NewRepo(database)
 	deletedCount, err = manualCheckinRepo.RemoveOldManualCheckins(ctx, time.Now().Add(olderThan))
 	if err != nil {
 	}
 
-	slog.InfoContext(ctx, "deleted old manual checkins", slog.Int64("deleted_count", deletedCount), slog.Duration("older_than", olderThan))
+	log.InfoContext(ctx, "deleted old manual checkins", slog.Int64("deleted_count", deletedCount), slog.Duration("older_than", olderThan))
 
 	return nil
 }

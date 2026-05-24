@@ -17,6 +17,7 @@ import (
 
 	"kids-checkin/internal/client/planningcenter"
 	"kids-checkin/internal/db"
+	"kids-checkin/internal/logger"
 	"kids-checkin/internal/repo/checkin"
 	"kids-checkin/internal/repo/event"
 	"kids-checkin/internal/repo/location"
@@ -62,7 +63,9 @@ func FetchCheckoutsV1(ctx context.Context, cmd *cli.Command) error {
 
 	pcClient, checkinRepo, locationsRepo, _ := getClients(database)
 
-	slog.InfoContext(ctx, "starting checkout fetcher (by location)",
+	ctx = logger.WithLogger(ctx, slog.With(slog.String("worker", "checkout-fetcher-v1")))
+
+	logger.FromContext(ctx).InfoContext(ctx, "starting checkout fetcher (by location)",
 		slog.Duration("interval", interval),
 		slog.Duration("location_update_interval", locationUpdateInterval),
 		slog.Duration("runtime", runtime),
@@ -73,7 +76,7 @@ func FetchCheckoutsV1(ctx context.Context, cmd *cli.Command) error {
 			break
 		}
 
-		slog.InfoContext(ctx, "checking for locations that need updating")
+		logger.FromContext(ctx).InfoContext(ctx, "checking for locations that need updating")
 
 		err = checkoutLoop(ctx, locationsRepo, checkinRepo, pcClient, locationUpdateInterval)
 		if err != nil {
@@ -133,7 +136,9 @@ func FetchCheckoutsV2(ctx context.Context, cmd *cli.Command) error {
 
 	pcClient, checkinRepo, locationsRepo, eventRepo := getClients(database)
 
-	slog.InfoContext(ctx, "starting checkout fetcher (by event)",
+	ctx = logger.WithLogger(ctx, slog.With(slog.String("worker", "checkout-fetcher-v2")))
+
+	logger.FromContext(ctx).InfoContext(ctx, "starting checkout fetcher (by event)",
 		slog.Duration("interval", interval),
 		slog.Duration("event_update_interval", eventUpdateInterval),
 		slog.Duration("runtime", runtime),
@@ -155,7 +160,7 @@ func FetchCheckoutsV2(ctx context.Context, cmd *cli.Command) error {
 		for range time.Tick(5 * time.Minute) {
 			locations, err := locationsRepo.ListLocations(ctx, location.LocationFilter{})
 			if err != nil {
-				slog.ErrorContext(ctx, "could not fetch locations", "error", err)
+				logger.FromContext(ctx).ErrorContext(ctx, "could not fetch locations", "error", err)
 				continue
 			}
 
@@ -170,7 +175,7 @@ func FetchCheckoutsV2(ctx context.Context, cmd *cli.Command) error {
 			break
 		}
 
-		slog.InfoContext(ctx, "checking for events that need updating")
+		logger.FromContext(ctx).InfoContext(ctx, "checking for events that need updating")
 
 		err = eventCheckoutLoop(ctx, eventRepo, checkinRepo, pcClient, &locationMap, eventUpdateInterval)
 		if err != nil {
@@ -208,11 +213,11 @@ func eventCheckoutLoop(ctx context.Context, eventRepo event.Repo, checkinRepo ch
 	}
 
 	if len(eventsToUpdate) == 0 {
-		slog.InfoContext(ctx, "no events need updating")
+		logger.FromContext(ctx).InfoContext(ctx, "no events need updating")
 		return nil
 	}
 
-	slog.InfoContext(ctx, "processing events that need updating", slog.Int("total_events", len(events)), slog.Int("events_to_update", len(eventsToUpdate)))
+	logger.FromContext(ctx).InfoContext(ctx, "processing events that need updating", slog.Int("total_events", len(events)), slog.Int("events_to_update", len(eventsToUpdate)))
 
 	var (
 		wg           sync.WaitGroup
@@ -282,18 +287,18 @@ func processEventCheckouts(ctx context.Context, ev event.Event, checkinRepo chec
 	if err != nil {
 		var timeoutErr *planningcenter.TimeoutError
 		if errors.As(err, &timeoutErr) {
-			slog.WarnContext(ctx, "timeout fetching checkouts for event", slog.String("event_id", currentEvent.PlanningCenterID), slog.String("error", err.Error()), slog.Any("err", err))
+			logger.FromContext(ctx).WarnContext(ctx, "timeout fetching checkouts for event", slog.String("event_id", currentEvent.PlanningCenterID), slog.String("error", err.Error()), slog.Any("err", err))
 			return
 		}
 		errCh <- fmt.Errorf("failed to fetch checkouts for event %s: %w", currentEvent.PlanningCenterID, err)
 		return
 	}
-	slog.InfoContext(ctx, "fetched checkouts for event", slog.String("event_id", currentEvent.PlanningCenterID), slog.Int("checkouts_count", len(checkouts)))
+	logger.FromContext(ctx).InfoContext(ctx, "fetched checkouts for event", slog.String("event_id", currentEvent.PlanningCenterID), slog.Int("checkouts_count", len(checkouts)))
 
 	for _, checkout := range checkouts {
 		locationIDA, found := locationIDMap.Load(checkout.PlanningCenterLocationID)
 		if !found {
-			slog.ErrorContext(ctx, "could not find location by planning center id in map", "checkout_pc_id", checkout.PlanningCenterLocationID)
+			logger.FromContext(ctx).ErrorContext(ctx, "could not find location by planning center id in map", "checkout_pc_id", checkout.PlanningCenterLocationID)
 			continue
 		}
 
@@ -353,11 +358,11 @@ func checkoutLoop(ctx context.Context, locationRepo location.Repo, checkinRepo c
 	}
 
 	if len(locationsToUpdate) == 0 {
-		slog.InfoContext(ctx, "no locations need updating")
+		logger.FromContext(ctx).InfoContext(ctx, "no locations need updating")
 		return nil
 	}
 
-	slog.InfoContext(ctx, "processing locations that need updating", slog.Int("total_locations", len(locations)), slog.Int("locations_to_update", len(locationsToUpdate)))
+	logger.FromContext(ctx).InfoContext(ctx, "processing locations that need updating", slog.Int("total_locations", len(locations)), slog.Int("locations_to_update", len(locationsToUpdate)))
 
 	var (
 		wg    sync.WaitGroup
@@ -411,13 +416,13 @@ func processLocationCheckouts(ctx context.Context, loc location.Location, checki
 	if err != nil {
 		var timeoutErr *planningcenter.TimeoutError
 		if errors.As(err, &timeoutErr) {
-			slog.WarnContext(ctx, "timeout fetching checkouts for location", slog.String("location_id", loc.PlanningCenterID), slog.String("error", err.Error()), slog.Any("err", err))
+			logger.FromContext(ctx).WarnContext(ctx, "timeout fetching checkouts for location", slog.String("location_id", loc.PlanningCenterID), slog.String("error", err.Error()), slog.Any("err", err))
 			return
 		}
 		errCh <- fmt.Errorf("failed to fetch checkouts for location %s: %w", loc.PlanningCenterID, err)
 		return
 	}
-	slog.InfoContext(ctx, "fetched checkouts for location", slog.String("location_id", loc.PlanningCenterID), slog.Int("checkouts_count", len(checkouts)))
+	logger.FromContext(ctx).InfoContext(ctx, "fetched checkouts for location", slog.String("location_id", loc.PlanningCenterID), slog.Int("checkouts_count", len(checkouts)))
 
 	for _, checkout := range checkouts {
 		co := checkin.Checkin{

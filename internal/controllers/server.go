@@ -24,7 +24,6 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/filesystem"
-	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/gofiber/fiber/v2/middleware/session"
 	"github.com/gofiber/storage/sqlite3"
@@ -89,19 +88,16 @@ func StartServer(port int, dbFilepath string) error {
 			return nil
 		},
 	})
-	app.Use(middleware.RequestID())
+	app.Use(middleware.RequestLogger())
+	app.Use(middleware.HTTPAccessLogger())
 	app.Use(recover.New())
-	app.Use(logger.New(logger.Config{
-		TimeZone:   "UTC",
-		TimeFormat: "2006-01-02T15:04:05Z",
-	}))
 
 	registerRoutes(app, database, store, storage)
 
 	app.Get("manifest.webmanifest", func(c *fiber.Ctx) error {
 		f, err := static.EmbeddedFS.Open("manifest.webmanifest")
 		if err != nil {
-			slog.WarnContext(c.Context(), "failed to open manifest.webmanifest", slog.String("error", err.Error()))
+			middleware.GetLogger(c).WarnContext(c.Context(), "failed to open manifest.webmanifest", slog.String("error", err.Error()))
 			return fiber.ErrInternalServerError
 		}
 		defer f.Close()
@@ -113,7 +109,7 @@ func StartServer(port int, dbFilepath string) error {
 	app.Get("apple-touch-icon.png", func(c *fiber.Ctx) error {
 		f, err := static.EmbeddedFS.Open("img/apple-touch-icon.png")
 		if err != nil {
-			slog.WarnContext(c.Context(), "failed to open apple-touch-icon.png", slog.String("error", err.Error()))
+			middleware.GetLogger(c).WarnContext(c.Context(), "failed to open apple-touch-icon.png", slog.String("error", err.Error()))
 			return fiber.ErrInternalServerError
 		}
 		defer f.Close()
@@ -136,7 +132,7 @@ func StartServer(port int, dbFilepath string) error {
 	app.Get("favicon.ico", func(c *fiber.Ctx) error {
 		f, err := static.EmbeddedFS.Open("img/favicon.ico")
 		if err != nil {
-			slog.WarnContext(c.Context(), "failed to open favicon.ico", slog.String("error", err.Error()))
+			middleware.GetLogger(c).WarnContext(c.Context(), "failed to open favicon.ico", slog.String("error", err.Error()))
 			return fiber.ErrInternalServerError
 		}
 		defer f.Close()

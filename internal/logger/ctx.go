@@ -7,20 +7,15 @@ import (
 
 type ctxKey string
 
-const requestIDKey ctxKey = "request_id"
+const loggerKey ctxKey = "slogger"
 
-func WithRequestID(ctx context.Context, rid string) context.Context {
-	return context.WithValue(ctx, requestIDKey, rid)
+func WithLogger(ctx context.Context, logger *slog.Logger) context.Context {
+	return context.WithValue(ctx, loggerKey, logger)
 }
 
-func RequestIDFrom(ctx context.Context) string {
-	v, _ := ctx.Value(requestIDKey).(string)
-	return v
-}
-
-func LogAttrs(ctx context.Context, level slog.Level, msg string, attrs ...slog.Attr) {
-	if rid := RequestIDFrom(ctx); rid != "" {
-		attrs = append([]slog.Attr{slog.String("request_id", rid)}, attrs...)
+func FromContext(ctx context.Context) *slog.Logger {
+	if l, ok := ctx.Value(loggerKey).(*slog.Logger); ok {
+		return l
 	}
-	slog.LogAttrs(ctx, level, msg, attrs...)
+	return slog.Default()
 }

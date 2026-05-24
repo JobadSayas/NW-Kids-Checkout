@@ -45,8 +45,10 @@ func (controller *Controller) RegisterRoutes(app *fiber.App) {
 }
 
 func (controller *Controller) GetEvents(c *fiber.Ctx) error {
+	log := middleware.GetLogger(c)
+
 	cursor := c.Query("cursor")
-	slog.InfoContext(c.Context(), "fetching planning center events", slog.Bool("has_cursor", cursor != ""))
+	log.InfoContext(c.Context(), "fetching planning center events", slog.Bool("has_cursor", cursor != ""))
 	var (
 		events  []planningcenter.Event
 		nextURL string
@@ -55,7 +57,7 @@ func (controller *Controller) GetEvents(c *fiber.Ctx) error {
 	if cursor != "" {
 		storedURL, fetchErr := controller.getNextURL(cursor)
 		if fetchErr != nil {
-			slog.ErrorContext(c.Context(), "failed to resolve planning center cursor", slog.String("cursor", cursor), slog.String("error", fetchErr.Error()), slog.Any("err", fetchErr))
+			log.ErrorContext(c.Context(), "failed to resolve planning center cursor", slog.String("cursor", cursor), slog.String("error", fetchErr.Error()), slog.Any("err", fetchErr))
 			return fetchErr
 		}
 		events, nextURL, err = controller.client.GetEventsFromNextURL(c.Context(), storedURL)
@@ -63,7 +65,7 @@ func (controller *Controller) GetEvents(c *fiber.Ctx) error {
 		events, nextURL, err = controller.client.GetEvents(c.Context())
 	}
 	if err != nil {
-		slog.ErrorContext(c.Context(), "failed to fetch planning center events", slog.String("error", err.Error()), slog.Any("err", err))
+		log.ErrorContext(c.Context(), "failed to fetch planning center events", slog.String("error", err.Error()), slog.Any("err", err))
 		return err
 	}
 
@@ -71,13 +73,13 @@ func (controller *Controller) GetEvents(c *fiber.Ctx) error {
 	if nextURL != "" {
 		cursorToken, storeErr := controller.storeNextURL(nextURL)
 		if storeErr != nil {
-			slog.ErrorContext(c.Context(), "failed to store planning center cursor", slog.String("error", storeErr.Error()), slog.Any("err", storeErr))
+			log.ErrorContext(c.Context(), "failed to store planning center cursor", slog.String("error", storeErr.Error()), slog.Any("err", storeErr))
 			return storeErr
 		}
 		responseNext = "/v1/admin/planningcenter/events?cursor=" + url.QueryEscape(cursorToken)
 	}
 
-	slog.InfoContext(c.Context(), "fetched planning center events", slog.Int("events_count", len(events)), slog.Bool("has_next", nextURL != ""))
+	log.InfoContext(c.Context(), "fetched planning center events", slog.Int("events_count", len(events)), slog.Bool("has_next", nextURL != ""))
 
 	return c.JSON(EventListResponse{
 		Events: eventsToOutput(events),
@@ -114,21 +116,23 @@ func (controller *Controller) getNextURL(cursor string) (string, error) {
 }
 
 func (controller *Controller) GetLocationsForEvent(c *fiber.Ctx) error {
+	log := middleware.GetLogger(c)
+
 	eventID := c.Params("id", "")
 	if eventID == "" {
-		slog.InfoContext(c.Context(), "missing planning center event id")
+		log.InfoContext(c.Context(), "missing planning center event id")
 		return fiber.NewError(fiber.StatusBadRequest, "event id is required")
 	}
 
-	slog.InfoContext(c.Context(), "fetching planning center locations", slog.String("event_id", eventID))
+	log.InfoContext(c.Context(), "fetching planning center locations", slog.String("event_id", eventID))
 
 	locations, err := controller.client.GetLocationsForEvent(c.Context(), eventID)
 	if err != nil {
-		slog.ErrorContext(c.Context(), "failed to fetch planning center locations", slog.String("event_id", eventID), slog.String("error", err.Error()), slog.Any("err", err))
+		log.ErrorContext(c.Context(), "failed to fetch planning center locations", slog.String("event_id", eventID), slog.String("error", err.Error()), slog.Any("err", err))
 		return err
 	}
 
-	slog.InfoContext(c.Context(), "fetched planning center locations", slog.String("event_id", eventID), slog.Int("locations_count", len(locations)))
+	log.InfoContext(c.Context(), "fetched planning center locations", slog.String("event_id", eventID), slog.Int("locations_count", len(locations)))
 
 	return c.JSON(locationsToOutput(locations))
 }

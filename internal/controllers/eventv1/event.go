@@ -91,28 +91,30 @@ func (controller *Controller) GetEventByID(c *fiber.Ctx) error {
 }
 
 func (controller *Controller) PostCreateEvent(c *fiber.Ctx) error {
+	log := middleware.GetLogger(c)
+
 	var input EventInput
 	if err := json.Unmarshal(c.Body(), &input); err != nil {
-		slog.WarnContext(c.Context(), "invalid event creation payload", slog.String("error", err.Error()))
+		log.WarnContext(c.Context(), "invalid event creation payload", slog.String("error", err.Error()))
 		return fiber.NewError(fiber.StatusBadRequest, "invalid JSON")
 	}
 
 	if input.PlanningCenterID == "" {
-		slog.InfoContext(c.Context(), "missing planning center id")
+		log.InfoContext(c.Context(), "missing planning center id")
 		return fiber.NewError(fiber.StatusBadRequest, "planning_center_id is required")
 	}
 
-	slog.InfoContext(c.Context(), "creating event from planning center", slog.String("planning_center_id", input.PlanningCenterID))
+	log.InfoContext(c.Context(), "creating event from planning center", slog.String("planning_center_id", input.PlanningCenterID))
 
 	pcEvent, err := controller.client.GetEventByID(c.Context(), input.PlanningCenterID)
 	if err != nil {
-		slog.ErrorContext(c.Context(), "failed to fetch planning center event", slog.String("planning_center_id", input.PlanningCenterID), slog.String("error", err.Error()), slog.Any("err", err))
+		log.ErrorContext(c.Context(), "failed to fetch planning center event", slog.String("planning_center_id", input.PlanningCenterID), slog.String("error", err.Error()), slog.Any("err", err))
 		return err
 	}
 
 	pcLocations, err := controller.client.GetLocationsForEvent(c.Context(), input.PlanningCenterID)
 	if err != nil {
-		slog.ErrorContext(c.Context(), "failed to fetch planning center locations", slog.String("planning_center_id", input.PlanningCenterID), slog.String("error", err.Error()), slog.Any("err", err))
+		log.ErrorContext(c.Context(), "failed to fetch planning center locations", slog.String("planning_center_id", input.PlanningCenterID), slog.String("error", err.Error()), slog.Any("err", err))
 		return err
 	}
 
@@ -131,7 +133,7 @@ func (controller *Controller) PostCreateEvent(c *fiber.Ctx) error {
 		PlanningCenterID: pcEvent.ID,
 	}, locations)
 	if err != nil {
-		slog.ErrorContext(c.Context(), "failed to sync event", slog.String("planning_center_id", input.PlanningCenterID), slog.String("error", err.Error()), slog.Any("err", err))
+		log.ErrorContext(c.Context(), "failed to sync event", slog.String("planning_center_id", input.PlanningCenterID), slog.String("error", err.Error()), slog.Any("err", err))
 		return err
 	}
 
@@ -142,27 +144,29 @@ func (controller *Controller) PostCreateEvent(c *fiber.Ctx) error {
 		logMsg = "created event from planning center"
 	}
 
-	slog.InfoContext(c.Context(), logMsg, slog.Int64("event_id", created.ID), slog.String("planning_center_id", input.PlanningCenterID), slog.Int("locations_count", len(locations)))
+	log.InfoContext(c.Context(), logMsg, slog.Int64("event_id", created.ID), slog.String("planning_center_id", input.PlanningCenterID), slog.Int("locations_count", len(locations)))
 
 	return c.Status(status).JSON(repoEventToOutput(created))
 }
 
 func (controller *Controller) GetEventByPlanningCenterID(c *fiber.Ctx) error {
+	log := middleware.GetLogger(c)
+
 	planningCenterID := c.Query("planning_center_id")
 	if planningCenterID == "" {
-		slog.InfoContext(c.Context(), "missing planning center id")
+		log.InfoContext(c.Context(), "missing planning center id")
 		return fiber.NewError(fiber.StatusBadRequest, "planning_center_id is required")
 	}
 
-	slog.InfoContext(c.Context(), "looking up event by planning center id", slog.String("planning_center_id", planningCenterID))
+	log.InfoContext(c.Context(), "looking up event by planning center id", slog.String("planning_center_id", planningCenterID))
 
 	result, err := controller.repo.GetEventByPlanningCenterID(c.Context(), planningCenterID)
 	if err != nil {
 		if errors.Is(err, repo.ErrNotFound) {
-			slog.InfoContext(c.Context(), "event not found for planning center id", slog.String("planning_center_id", planningCenterID))
+			log.InfoContext(c.Context(), "event not found for planning center id", slog.String("planning_center_id", planningCenterID))
 			return fiber.NewError(fiber.StatusNotFound, "event not found")
 		}
-		slog.ErrorContext(c.Context(), "failed to lookup event by planning center id", slog.String("planning_center_id", planningCenterID), slog.String("error", err.Error()), slog.Any("err", err))
+		log.ErrorContext(c.Context(), "failed to lookup event by planning center id", slog.String("planning_center_id", planningCenterID), slog.String("error", err.Error()), slog.Any("err", err))
 		return err
 	}
 
@@ -262,6 +266,8 @@ func (controller *Controller) GetEventCheckWindows(c *fiber.Ctx) error {
 }
 
 func (controller *Controller) PostCreateCheckWindow(c *fiber.Ctx) error {
+	log := middleware.GetLogger(c)
+
 	eventID, err := strconv.ParseInt(c.Params("eventId"), 10, 64)
 	if err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "invalid event id")
@@ -269,23 +275,25 @@ func (controller *Controller) PostCreateCheckWindow(c *fiber.Ctx) error {
 
 	var input EventCheckWindowInput
 	if err := json.Unmarshal(c.Body(), &input); err != nil {
-		slog.WarnContext(c.Context(), "invalid check window creation payload", slog.String("error", err.Error()))
+		log.WarnContext(c.Context(), "invalid check window creation payload", slog.String("error", err.Error()))
 		return fiber.NewError(fiber.StatusBadRequest, "invalid JSON")
 	}
 
 	window := inputToCheckWindow(input, eventID)
 	created, err := controller.checkWindowRepo.CreateCheckWindow(c.Context(), window)
 	if err != nil {
-		slog.WarnContext(c.Context(), "failed to create check window", slog.String("error", err.Error()), slog.Any("err", err))
+		log.WarnContext(c.Context(), "failed to create check window", slog.String("error", err.Error()), slog.Any("err", err))
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
-	slog.InfoContext(c.Context(), "created check window", slog.Int64("event_id", eventID), slog.Int64("window_id", created.ID))
+	log.InfoContext(c.Context(), "created check window", slog.Int64("event_id", eventID), slog.Int64("window_id", created.ID))
 
 	return c.Status(fiber.StatusCreated).JSON(repoCheckWindowToOutput(created))
 }
 
 func (controller *Controller) PutUpdateCheckWindow(c *fiber.Ctx) error {
+	log := middleware.GetLogger(c)
+
 	eventID, err := strconv.ParseInt(c.Params("eventId"), 10, 64)
 	if err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "invalid event id")
@@ -298,7 +306,7 @@ func (controller *Controller) PutUpdateCheckWindow(c *fiber.Ctx) error {
 
 	var input EventCheckWindowInput
 	if err := json.Unmarshal(c.Body(), &input); err != nil {
-		slog.WarnContext(c.Context(), "invalid check window update payload", slog.String("error", err.Error()))
+		log.WarnContext(c.Context(), "invalid check window update payload", slog.String("error", err.Error()))
 		return fiber.NewError(fiber.StatusBadRequest, "invalid JSON")
 	}
 
@@ -310,16 +318,18 @@ func (controller *Controller) PutUpdateCheckWindow(c *fiber.Ctx) error {
 		if errors.Is(err, repo.ErrNotFound) {
 			return fiber.NewError(fiber.StatusNotFound, "check window not found")
 		}
-		slog.ErrorContext(c.Context(), "failed to update check window", slog.String("error", err.Error()), slog.Any("err", err))
+		log.ErrorContext(c.Context(), "failed to update check window", slog.String("error", err.Error()), slog.Any("err", err))
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
-	slog.InfoContext(c.Context(), "updated check window", slog.Int64("event_id", eventID), slog.Int64("window_id", windowID))
+	log.InfoContext(c.Context(), "updated check window", slog.Int64("event_id", eventID), slog.Int64("window_id", windowID))
 
 	return c.JSON(repoCheckWindowToOutput(window))
 }
 
 func (controller *Controller) DeleteCheckWindow(c *fiber.Ctx) error {
+	log := middleware.GetLogger(c)
+
 	windowID, err := strconv.ParseInt(c.Params("windowId"), 10, 64)
 	if err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "invalid window id")
@@ -333,7 +343,7 @@ func (controller *Controller) DeleteCheckWindow(c *fiber.Ctx) error {
 		return err
 	}
 
-	slog.InfoContext(c.Context(), "deleted check window", slog.Int64("window_id", windowID))
+	log.InfoContext(c.Context(), "deleted check window", slog.Int64("window_id", windowID))
 
 	return c.SendStatus(fiber.StatusNoContent)
 }

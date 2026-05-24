@@ -6,6 +6,7 @@ import (
 
 	"kids-checkin/internal/client/planningcenter"
 	"kids-checkin/internal/db"
+	"kids-checkin/internal/logger"
 	"kids-checkin/internal/repo/location"
 
 	"github.com/urfave/cli/v3"
@@ -40,7 +41,10 @@ func upsertLocation(ctx context.Context, cmd *cli.Command) error {
 
 	defer database.Close()
 
-	slog.InfoContext(ctx, "starting location upsert", slog.String("location_id", cmd.String("location-id")), slog.String("db_file", dbFile))
+	ctx = logger.WithLogger(ctx, slog.With(slog.String("cmd", "location-upsert")))
+	log := logger.FromContext(ctx)
+
+	log.InfoContext(ctx, "starting location upsert", slog.String("location_id", cmd.String("location-id")), slog.String("db_file", dbFile))
 
 	pcClient := planningcenter.NewClient()
 	locationRepo := location.NewRepo(database)
@@ -61,6 +65,6 @@ func upsertLocation(ctx context.Context, cmd *cli.Command) error {
 		}
 	}
 
-	slog.InfoContext(ctx, "done upserting locations", slog.Int("locations_count", len(locations)))
+	log.InfoContext(ctx, "done upserting locations", slog.Int("locations_count", len(locations)))
 	return nil
 }
