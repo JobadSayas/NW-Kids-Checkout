@@ -46,20 +46,22 @@ func deleteOlderThanCmd(ctx context.Context, cmd *cli.Command) error {
 
 	defer database.Close()
 
+	slog.InfoContext(ctx, "starting checkins delete-old", slog.Duration("age", olderThan), slog.String("db_file", dbFile))
+
 	checkinRepo := checkin.NewRepo(database)
 	deletedCount, err := checkinRepo.RemoveOldCheckins(ctx, time.Now().Add(olderThan))
 	if err != nil {
 		return cli.Exit(err.Error(), 1)
 	}
 
-	slog.Info("deleted old checkins", slog.Int64("deleted_count", deletedCount), slog.Duration("older_than", olderThan))
+	slog.InfoContext(ctx, "deleted old checkins", slog.Int64("deleted_count", deletedCount), slog.Duration("older_than", olderThan))
 
 	manualCheckinRepo := manualcheckin.NewRepo(database)
 	deletedCount, err = manualCheckinRepo.RemoveOldManualCheckins(ctx, time.Now().Add(olderThan))
 	if err != nil {
 	}
 
-	slog.Info("deleted old manual checkins", slog.Int64("deleted_count", deletedCount), slog.Duration("older_than", olderThan))
+	slog.InfoContext(ctx, "deleted old manual checkins", slog.Int64("deleted_count", deletedCount), slog.Duration("older_than", olderThan))
 
 	return nil
 }

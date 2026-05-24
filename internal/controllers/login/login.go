@@ -3,6 +3,7 @@ package login
 import (
 	"fmt"
 	"kids-checkin/internal/web/static"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -30,7 +31,7 @@ func (controller *Controller) RegisterRoutes(app *fiber.App) {
 	app.Get("/login", controller.GetLogin)
 	app.Post("/login", controller.PostLogin)
 	app.Get("/logout", controller.GetLogout)
-	fmt.Println("Registering login routes")
+	slog.Info("registering login routes")
 }
 
 func (controller *Controller) GetLogin(c *fiber.Ctx) error {

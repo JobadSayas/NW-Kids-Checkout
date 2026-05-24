@@ -14,8 +14,8 @@ func InitDB(dataSourceName string) (*sql.DB, error) {
 		return nil, errors.New("missing database DSN")
 	}
 
-	slog.Info("Initializing database connection", slog.String("dsn", dataSourceName))
-	var err error
+	slog.Info("initializing database connection", slog.String("dsn", dataSourceName))
+
 	db, err := sql.Open("sqlite3", dataSourceName)
 	if err != nil {
 		return nil, err
@@ -28,5 +28,12 @@ func InitDB(dataSourceName string) (*sql.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	return db, db.Ping()
+
+	err = db.Ping()
+	if err != nil {
+		return nil, err
+	}
+
+	slog.Info("database connection established")
+	return db, nil
 }

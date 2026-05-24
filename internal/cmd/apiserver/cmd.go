@@ -3,6 +3,7 @@ package apiserver
 import (
 	"context"
 	"errors"
+	"log/slog"
 
 	"kids-checkin/internal/controllers"
 
@@ -16,9 +17,14 @@ func ServeCmd(ctx context.Context, cmd *cli.Command) error {
 		return errors.New("port must be greater than 0")
 	}
 
+	slog.Info("starting api server", slog.Int("port", port), slog.String("db_file", cmd.String("db-file")))
+
 	err := controllers.StartServer(port, cmd.String("db-file"))
 	if err != nil {
-		panic(err)
+		slog.Error("api server failed", slog.String("error", err.Error()))
+		return err
 	}
+
+	slog.Info("api server stopped")
 	return nil
 }

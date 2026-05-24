@@ -98,7 +98,7 @@ func (controller *Controller) PostCreateEvent(c *fiber.Ctx) error {
 	}
 
 	if input.PlanningCenterID == "" {
-		slog.WarnContext(c.Context(), "missing planning center id")
+		slog.InfoContext(c.Context(), "missing planning center id")
 		return fiber.NewError(fiber.StatusBadRequest, "planning_center_id is required")
 	}
 
@@ -106,13 +106,13 @@ func (controller *Controller) PostCreateEvent(c *fiber.Ctx) error {
 
 	pcEvent, err := controller.client.GetEventByID(c.Context(), input.PlanningCenterID)
 	if err != nil {
-		slog.WarnContext(c.Context(), "failed to fetch planning center event", slog.String("planning_center_id", input.PlanningCenterID), slog.String("error", err.Error()))
+		slog.ErrorContext(c.Context(), "failed to fetch planning center event", slog.String("planning_center_id", input.PlanningCenterID), slog.String("error", err.Error()), slog.Any("err", err))
 		return err
 	}
 
 	pcLocations, err := controller.client.GetLocationsForEvent(c.Context(), input.PlanningCenterID)
 	if err != nil {
-		slog.WarnContext(c.Context(), "failed to fetch planning center locations", slog.String("planning_center_id", input.PlanningCenterID), slog.String("error", err.Error()))
+		slog.ErrorContext(c.Context(), "failed to fetch planning center locations", slog.String("planning_center_id", input.PlanningCenterID), slog.String("error", err.Error()), slog.Any("err", err))
 		return err
 	}
 
@@ -131,7 +131,7 @@ func (controller *Controller) PostCreateEvent(c *fiber.Ctx) error {
 		PlanningCenterID: pcEvent.ID,
 	}, locations)
 	if err != nil {
-		slog.WarnContext(c.Context(), "failed to sync event", slog.String("planning_center_id", input.PlanningCenterID), slog.String("error", err.Error()))
+		slog.ErrorContext(c.Context(), "failed to sync event", slog.String("planning_center_id", input.PlanningCenterID), slog.String("error", err.Error()), slog.Any("err", err))
 		return err
 	}
 
@@ -150,7 +150,7 @@ func (controller *Controller) PostCreateEvent(c *fiber.Ctx) error {
 func (controller *Controller) GetEventByPlanningCenterID(c *fiber.Ctx) error {
 	planningCenterID := c.Query("planning_center_id")
 	if planningCenterID == "" {
-		slog.WarnContext(c.Context(), "missing planning center id")
+		slog.InfoContext(c.Context(), "missing planning center id")
 		return fiber.NewError(fiber.StatusBadRequest, "planning_center_id is required")
 	}
 
@@ -162,7 +162,7 @@ func (controller *Controller) GetEventByPlanningCenterID(c *fiber.Ctx) error {
 			slog.InfoContext(c.Context(), "event not found for planning center id", slog.String("planning_center_id", planningCenterID))
 			return fiber.NewError(fiber.StatusNotFound, "event not found")
 		}
-		slog.WarnContext(c.Context(), "failed to lookup event by planning center id", slog.String("planning_center_id", planningCenterID), slog.String("error", err.Error()))
+		slog.ErrorContext(c.Context(), "failed to lookup event by planning center id", slog.String("planning_center_id", planningCenterID), slog.String("error", err.Error()), slog.Any("err", err))
 		return err
 	}
 
@@ -276,7 +276,7 @@ func (controller *Controller) PostCreateCheckWindow(c *fiber.Ctx) error {
 	window := inputToCheckWindow(input, eventID)
 	created, err := controller.checkWindowRepo.CreateCheckWindow(c.Context(), window)
 	if err != nil {
-		slog.WarnContext(c.Context(), "failed to create check window", slog.String("error", err.Error()))
+		slog.WarnContext(c.Context(), "failed to create check window", slog.String("error", err.Error()), slog.Any("err", err))
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
@@ -310,7 +310,7 @@ func (controller *Controller) PutUpdateCheckWindow(c *fiber.Ctx) error {
 		if errors.Is(err, repo.ErrNotFound) {
 			return fiber.NewError(fiber.StatusNotFound, "check window not found")
 		}
-		slog.WarnContext(c.Context(), "failed to update check window", slog.String("error", err.Error()))
+		slog.ErrorContext(c.Context(), "failed to update check window", slog.String("error", err.Error()), slog.Any("err", err))
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 

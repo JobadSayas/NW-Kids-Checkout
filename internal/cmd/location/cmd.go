@@ -40,6 +40,8 @@ func upsertLocation(ctx context.Context, cmd *cli.Command) error {
 
 	defer database.Close()
 
+	slog.InfoContext(ctx, "starting location upsert", slog.String("location_id", cmd.String("location-id")), slog.String("db_file", dbFile))
+
 	pcClient := planningcenter.NewClient()
 	locationRepo := location.NewRepo(database)
 
@@ -59,6 +61,6 @@ func upsertLocation(ctx context.Context, cmd *cli.Command) error {
 		}
 	}
 
-	slog.Info("done upserting locations", slog.Int("locations_count", len(locations)))
+	slog.InfoContext(ctx, "done upserting locations", slog.Int("locations_count", len(locations)))
 	return nil
 }

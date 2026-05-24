@@ -181,7 +181,7 @@ func (client *defaultClient) GetCheckoutsForLocation(ctx context.Context, locati
 
 	done := false
 
-	slog.Info("getting checkins for locations", slog.String("location_id", locationID), slog.String("checked_out_on_or_after", checkedOutOnOrAfter.Format(time.RFC3339)))
+	slog.InfoContext(ctx, "getting checkins for locations", slog.String("location_id", locationID), slog.String("checked_out_on_or_after", checkedOutOnOrAfter.Format(time.RFC3339)))
 
 	for {
 		iterations++
@@ -196,7 +196,7 @@ func (client *defaultClient) GetCheckoutsForLocation(ctx context.Context, locati
 			}
 
 			defer func(start time.Time) {
-				slog.Info("got checkins for location", slog.String("location_id", locationID), slog.Int64("duration_ms", time.Since(start).Milliseconds()))
+				slog.InfoContext(ctx, "got checkins for location", slog.String("location_id", locationID), slog.Int64("duration_ms", time.Since(start).Milliseconds()))
 			}(time.Now())
 
 			req, err := http.NewRequestWithContext(ctx, http.MethodGet, getURL, nil)
@@ -290,7 +290,7 @@ func (client *defaultClient) GetCheckoutsForEvent(ctx context.Context, eventID s
 
 	done := false
 
-	slog.Info("getting checkins for event", slog.String("event_id", eventID), slog.String("checked_out_on_or_after", checkedOutOnOrAfter.Format(time.RFC3339)))
+	slog.InfoContext(ctx, "getting checkins for event", slog.String("event_id", eventID), slog.String("checked_out_on_or_after", checkedOutOnOrAfter.Format(time.RFC3339)))
 
 	for {
 		iterations++
@@ -304,7 +304,7 @@ func (client *defaultClient) GetCheckoutsForEvent(ctx context.Context, eventID s
 			}
 
 			defer func(start time.Time) {
-				slog.Info("got checkins for event", slog.String("event_id", eventID), slog.Int64("duration_ms", time.Since(start).Milliseconds()))
+				slog.InfoContext(ctx, "got checkins for event", slog.String("event_id", eventID), slog.Int64("duration_ms", time.Since(start).Milliseconds()))
 			}(time.Now())
 
 			req, err := http.NewRequestWithContext(ctx, http.MethodGet, getURL, nil)

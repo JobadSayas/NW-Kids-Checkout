@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"kids-checkin/internal/controllers/admin"
 	"kids-checkin/internal/controllers/login"
+	"kids-checkin/internal/controllers/middleware"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -87,6 +89,7 @@ func StartServer(port int, dbFilepath string) error {
 			return nil
 		},
 	})
+	app.Use(middleware.RequestID())
 	app.Use(recover.New())
 	app.Use(logger.New(logger.Config{
 		TimeZone:   "UTC",
@@ -98,7 +101,7 @@ func StartServer(port int, dbFilepath string) error {
 	app.Get("manifest.webmanifest", func(c *fiber.Ctx) error {
 		f, err := static.EmbeddedFS.Open("manifest.webmanifest")
 		if err != nil {
-			fmt.Println(err)
+			slog.WarnContext(c.Context(), "failed to open manifest.webmanifest", slog.String("error", err.Error()))
 			return fiber.ErrInternalServerError
 		}
 		defer f.Close()
@@ -110,7 +113,7 @@ func StartServer(port int, dbFilepath string) error {
 	app.Get("apple-touch-icon.png", func(c *fiber.Ctx) error {
 		f, err := static.EmbeddedFS.Open("img/apple-touch-icon.png")
 		if err != nil {
-			fmt.Println(err)
+			slog.WarnContext(c.Context(), "failed to open apple-touch-icon.png", slog.String("error", err.Error()))
 			return fiber.ErrInternalServerError
 		}
 		defer f.Close()
@@ -133,7 +136,7 @@ func StartServer(port int, dbFilepath string) error {
 	app.Get("favicon.ico", func(c *fiber.Ctx) error {
 		f, err := static.EmbeddedFS.Open("img/favicon.ico")
 		if err != nil {
-			fmt.Println(err)
+			slog.WarnContext(c.Context(), "failed to open favicon.ico", slog.String("error", err.Error()))
 			return fiber.ErrInternalServerError
 		}
 		defer f.Close()
@@ -153,11 +156,14 @@ func StartServer(port int, dbFilepath string) error {
 		Browse:     true,
 	}))
 
+	slog.Info("server listening", slog.Int("port", port))
+
 	err = app.Listen(":" + strconv.Itoa(port))
 	if err != nil {
 		return err
 	}
 
+	slog.Info("server stopped")
 	return nil
 }
 
