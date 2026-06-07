@@ -100,6 +100,10 @@ func FetchCheckouts(ctx context.Context, cmd *cli.Command) error {
 	return FetchCheckoutsV1(ctx, cmd)
 }
 
+// FetchCheckoutsV2 runs the by-event checkout fetcher. It periodically polls
+// Planning Center for new checkouts per event, using a background goroutine
+// to keep an in-memory location map (PlanningCenterID -> local ID) refreshed
+// every 5 minutes.
 func FetchCheckoutsV2(ctx context.Context, cmd *cli.Command) error {
 	dbFile := cmd.String("db-file")
 	database, err := db.InitDB(dbFile)
@@ -111,34 +115,34 @@ func FetchCheckoutsV2(ctx context.Context, cmd *cli.Command) error {
 
 	interval := cmd.Duration("interval")
 	if interval <= 0 {
-		return errors.New("interval must be greater than 0")
+		return fmt.Errorf("interval must be greater than 0")
 	}
 
 	eventUpdateInterval := cmd.Duration("event-update-interval")
 	if eventUpdateInterval <= 0 {
-		return errors.New("event-update-interval must be greater than 0")
+		return fmt.Errorf("event-update-interval must be greater than 0")
 	}
 
 	runtime := cmd.Duration("runtime")
 	if runtime <= 0 {
-		return errors.New("runtime must be greater than 0")
+		return fmt.Errorf("runtime must be greater than 0")
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, runtime)
 	defer cancel()
 
-	c := make(chan os.Signal)
+	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-c
-		os.Exit(1)
+		cancel()
 	}()
 
 	pcClient, checkinRepo, locationsRepo, eventRepo := getClients(database)
 
-	ctx = logger.WithLogger(ctx, slog.With(slog.String("worker", "checkout-fetcher-v2")))
+	logCtx := logger.WithLogger(ctx, slog.With(slog.String("worker", "checkout-fetcher-v2")))
 
-	logger.FromContext(ctx).InfoContext(ctx, "starting checkout fetcher (by event)",
+	logger.FromContext(logCtx).InfoContext(logCtx, "starting checkout fetcher (by event)",
 		slog.Duration("interval", interval),
 		slog.Duration("event_update_interval", eventUpdateInterval),
 		slog.Duration("runtime", runtime),
@@ -160,10 +164,15 @@ func FetchCheckoutsV2(ctx context.Context, cmd *cli.Command) error {
 		for range time.Tick(5 * time.Minute) {
 			locations, err := locationsRepo.ListLocations(ctx, location.LocationFilter{})
 			if err != nil {
-				logger.FromContext(ctx).ErrorContext(ctx, "could not fetch locations", "error", err)
+				logger.FromContext(logCtx).ErrorContext(logCtx, "could not fetch locations", "error", err)
 				continue
 			}
 
+			// Clear stale entries before repopulating so removed locations drop out of the map
+			locationMap.Range(func(key, _ any) bool {
+				locationMap.Delete(key)
+				return true
+			})
 			for _, loc := range locations {
 				locationMap.Store(loc.PlanningCenterID, loc.ID)
 			}
@@ -175,7 +184,7 @@ func FetchCheckoutsV2(ctx context.Context, cmd *cli.Command) error {
 			break
 		}
 
-		logger.FromContext(ctx).InfoContext(ctx, "checking for events that need updating")
+		logger.FromContext(logCtx).InfoContext(logCtx, "checking for events that need updating")
 
 		err = eventCheckoutLoop(ctx, eventRepo, checkinRepo, pcClient, &locationMap, eventUpdateInterval)
 		if err != nil {
@@ -185,7 +194,11 @@ func FetchCheckoutsV2(ctx context.Context, cmd *cli.Command) error {
 			return fmt.Errorf("failed to eventCheckoutLoop: %w", err)
 		}
 
-		time.Sleep(interval)
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(interval):
+		}
 	}
 
 	return nil
