@@ -160,22 +160,33 @@ func FetchCheckoutsV2(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	go func() {
-		// Refresh the data every 5 minutes
-		for range time.Tick(5 * time.Minute) {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+
 			locations, err := locationsRepo.ListLocations(ctx, location.LocationFilter{})
 			if err != nil {
 				logger.FromContext(logCtx).ErrorContext(logCtx, "could not fetch locations", "error", err)
 				continue
 			}
 
-			// Clear stale entries before repopulating so removed locations drop out of the map
-			locationMap.Range(func(key, _ any) bool {
-				locationMap.Delete(key)
-				return true
-			})
+			// Mark-and-sweep: add new entries, remove stale ones without a clear window
+			seen := make(map[string]bool, len(locations))
 			for _, loc := range locations {
+				seen[loc.PlanningCenterID] = true
 				locationMap.Store(loc.PlanningCenterID, loc.ID)
 			}
+			locationMap.Range(func(key, _ any) bool {
+				if !seen[key.(string)] {
+					locationMap.Delete(key)
+				}
+				return true
+			})
 		}
 	}()
 
@@ -241,13 +252,14 @@ func eventCheckoutLoop(ctx context.Context, eventRepo event.Repo, checkinRepo ch
 		eventMutexes sync.Map
 	)
 
+loop:
 	for _, ev := range eventsToUpdate {
 		select {
 		case <-ctx.Done():
 			errMu.Lock()
 			errs = append(errs, ctx.Err())
 			errMu.Unlock()
-			break
+			break loop
 		case sem <- struct{}{}:
 			wg.Add(1)
 			go func(ev event.Event) {
@@ -385,12 +397,13 @@ func checkoutLoop(ctx context.Context, locationRepo location.Repo, checkinRepo c
 		errCh = make(chan error, len(locationsToUpdate)) // Buffered channel for errors
 	)
 
+loop:
 	for _, loc := range locationsToUpdate {
 		select {
 		case <-ctx.Done():
 			// Context cancelled, stop launching new goroutines
 			errs = append(errs, ctx.Err())
-			break // Exit the loop when context is cancelled
+			break loop
 		case sem <- struct{}{}: // Acquire a slot in the semaphore
 			wg.Add(1)
 			go func(loc location.Location) {
@@ -509,7 +522,8 @@ func getClients(db *sql.DB) (planningcenter.Client, checkin.Repo, location.Repo,
 					})
 					pcco := make([]planningcenter.Checkout, 0, len(cw)/2)
 					for i := 0; i < len(cw)/2; i++ {
-						if !cw[i].CheckedOutAt.IsZero() {
+						// Skip checkins without a checkout time — only process finalized checkouts.
+						if cw[i].CheckedOutAt.IsZero() {
 							continue
 						}
 						pcco = append(pcco, planningcenter.Checkout{
@@ -541,6 +555,7 @@ func getClients(db *sql.DB) (planningcenter.Client, checkin.Repo, location.Repo,
 					FirstName:                static.RandomFirstName(),
 					LastName:                 static.RandomLastName(),
 					SecurityCode:             strings.ToUpper(uuid.New().String()[:4]),
+					CheckedOutAt:             time.Now().UTC(),
 					PlanningCenterLocationID: locID,
 				},
 			}, nil

@@ -156,6 +156,9 @@ func (r *sqliteRepo) ListEvents(ctx context.Context, filter EventFilter) ([]Even
 		}
 		events = append(events, event)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating events: %w", err)
+	}
 
 	return events, nil
 }

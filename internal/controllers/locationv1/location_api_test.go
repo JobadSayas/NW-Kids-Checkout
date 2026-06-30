@@ -38,7 +38,7 @@ func TestController_ListLocationsIncludesEventID(t *testing.T) {
 	_, err = locRepo.CreateLocation(t.Context(), location.Location{
 		PlanningCenterID: "pcloc_evt",
 		EventID:          insertedID,
-		Name:            "Event Room",
+		Name:             "Event Room",
 		AutoFetch:        false,
 	})
 	require.NoError(t, err)
@@ -69,11 +69,11 @@ func TestController_PatchUpdateLocation(t *testing.T) {
 
 	locRepo := location.NewRepo(testDB)
 	created, err := locRepo.CreateLocation(t.Context(), location.Location{
-		PlanningCenterID:   "pcloc_patch_1",
-		EventID:         1,
-		Name:            "Patch Test Room",
-		AutoFetch:       false,
-		LocationGroupID: nil,
+		PlanningCenterID: "pcloc_patch_1",
+		EventID:          1,
+		Name:             "Patch Test Room",
+		AutoFetch:        false,
+		LocationGroupID:  nil,
 	})
 	require.NoError(t, err)
 
@@ -264,12 +264,12 @@ func TestController_GetListLocations(t *testing.T) {
 	locRepo := location.NewRepo(testDB)
 	_, err = locRepo.CreateLocation(t.Context(), location.Location{
 		PlanningCenterID: "filter_pc_1",
-		Name:            "Filter Room 1",
+		Name:             "Filter Room 1",
 	})
 	require.NoError(t, err)
 	_, err = locRepo.CreateLocation(t.Context(), location.Location{
 		PlanningCenterID: "filter_pc_2",
-		Name:            "Filter Room 2",
+		Name:             "Filter Room 2",
 	})
 	require.NoError(t, err)
 

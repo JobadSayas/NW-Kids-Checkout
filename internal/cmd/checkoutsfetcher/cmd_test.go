@@ -546,3 +546,72 @@ func Test_processEventCheckouts_concurrentSameEvent_mutexProtection(t *testing.T
 	assert.False(t, events[0].LastCheckedOutTime.IsZero(), "LastCheckedOutTime should be set after processing")
 	assert.Len(t, createdCheckins, 2*goroutines, "each goroutine creates 2 checkins")
 }
+
+func Test_eventCheckoutLoop_contextCancellationMidLoop_breaksEarly(t *testing.T) {
+	events := []event.Event{
+		{ID: 1, PlanningCenterID: "evt_1", AutoFetch: true, LastCheckedOutTime: time.Time{}},
+		{ID: 2, PlanningCenterID: "evt_2", AutoFetch: true, LastCheckedOutTime: time.Time{}},
+		{ID: 3, PlanningCenterID: "evt_3", AutoFetch: true, LastCheckedOutTime: time.Time{}},
+		{ID: 4, PlanningCenterID: "evt_4", AutoFetch: true, LastCheckedOutTime: time.Time{}},
+		{ID: 5, PlanningCenterID: "evt_5", AutoFetch: true, LastCheckedOutTime: time.Time{}},
+		{ID: 6, PlanningCenterID: "evt_6", AutoFetch: true, LastCheckedOutTime: time.Time{}},
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+
+	releaseCh := make(chan struct{})
+	var blockedWG sync.WaitGroup
+	blockedWG.Add(5)
+
+	eventRepo := &event.MockRepo{
+		ListEventsFunc: func(ctx context.Context, filter event.EventFilter) ([]event.Event, error) {
+			return events, nil
+		},
+		GetEventByIDFunc: func(ctx context.Context, id int64) (event.Event, error) {
+			for _, e := range events {
+				if e.ID == id {
+					return e, nil
+				}
+			}
+			return event.Event{}, nil
+		},
+		UpdateEventFunc: func(ctx context.Context, ev event.Event) error {
+			return nil
+		},
+	}
+
+	checkinRepo := &checkin.MockRepo{
+		CreateCheckinFunc: func(ctx context.Context, c checkin.Checkin) (checkin.Checkin, error) {
+			return c, nil
+		},
+	}
+
+	pcClient := &planningcenter.MockClient{
+		GetCheckoutsForEventFunc: func(ctx context.Context, eventID string, checkedOutOnOrAfter time.Time, limit int) ([]planningcenter.Checkout, error) {
+			blockedWG.Done()
+			<-releaseCh
+			return []planningcenter.Checkout{
+				{ID: "c_" + eventID, FirstName: "F", LastName: "L", SecurityCode: "CODE", PlanningCenterLocationID: "pc_loc_1"},
+			}, nil
+		},
+	}
+
+	locationIDMap := sync.Map{}
+	locationIDMap.Store("pc_loc_1", int64(1))
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- eventCheckoutLoop(ctx, eventRepo, checkinRepo, pcClient, &locationIDMap, 5*time.Minute)
+	}()
+
+	blockedWG.Wait()
+	// All 5 semaphore slots are held; the 6th event is blocked on send.
+
+	cancel()
+
+	close(releaseCh)
+
+	err := <-errCh
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.Canceled)
+}

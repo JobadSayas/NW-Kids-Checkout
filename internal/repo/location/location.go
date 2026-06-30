@@ -88,6 +88,9 @@ func (r *sqliteRepo) ListLocationGroups(ctx context.Context, filter LocationGrou
 		}
 		groups = append(groups, group)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating location groups: %w", err)
+	}
 
 	return groups, nil
 }
@@ -175,6 +178,9 @@ func (r *sqliteRepo) ListLocations(ctx context.Context, filter LocationFilter) (
 		}
 
 		locations = append(locations, location)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating locations: %w", err)
 	}
 	return locations, nil
 }

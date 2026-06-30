@@ -166,6 +166,9 @@ func (s *sqliteRepo) ListCheckins(ctx context.Context, filter Filter) ([]Checkin
 
 		checkins = append(checkins, checkin)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating checkins: %w", err)
+	}
 
 	return checkins, nil
 }

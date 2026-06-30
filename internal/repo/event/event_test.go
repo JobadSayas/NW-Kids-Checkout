@@ -193,13 +193,13 @@ func Test_sqliteRepo_ListEvents_filter_by_LocationGroupID(t *testing.T) {
 	_, err = eventRepo.CreateEvent(t.Context(), Event{
 		Name:             "Event 1",
 		PlanningCenterID: "pc_evt_group_1",
-		LocationGroupID: &groupID,
+		LocationGroupID:  &groupID,
 	})
 	require.NoError(t, err)
 	_, err = eventRepo.CreateEvent(t.Context(), Event{
 		Name:             "Event 2",
 		PlanningCenterID: "pc_evt_group_2",
-		LocationGroupID: &groupID,
+		LocationGroupID:  &groupID,
 	})
 	require.NoError(t, err)
 	_, err = eventRepo.CreateEvent(t.Context(), Event{
