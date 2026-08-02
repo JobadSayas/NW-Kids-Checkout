@@ -9,11 +9,7 @@ const exposeInternals = `
 window.__test = {
     setChildrenData: (value) => { childrenData = value; },
     setDom: () => {
-        dom.currentChildCard = document.getElementById('current-child-card');
-        dom.previouslyCalledList = document.getElementById('previously-called-list');
-        dom.currentChildName = document.getElementById('current-child-name');
-        dom.currentChildCode = document.getElementById('current-child-code');
-        dom.currentChildTime = document.getElementById('current-child-time');
+        dom.childrenList = document.getElementById('children-list');
     },
     syncConfirmedStates: () => syncConfirmedStates(),
     setConfirmationOverride: (childId, confirmed) => setConfirmationOverride(childId, confirmed)
@@ -43,8 +39,7 @@ describe('checkoutsv1/checkouts', () => {
         expect(typeof window.normalizeCheckoutsResponse).toBe('function');
         expect(typeof window.getCheckedOutTimestamp).toBe('function');
         expect(typeof window.calculateMinutesAgoFromTimestamp).toBe('function');
-        expect(typeof window.renderCurrentChild).toBe('function');
-        expect(typeof window.renderPreviouslyCalled).toBe('function');
+        expect(typeof window.renderChildren).toBe('function');
     });
 
     it('builds child ids by source', () => {
@@ -80,30 +75,19 @@ describe('checkoutsv1/checkouts', () => {
         expect(window.calculateMinutesAgoFromTimestamp(2 * 60 * 1000, 5 * 60 * 1000)).toBe('3 min ago');
     });
 
-    it('renders current child with escaped text and manual star', () => {
+    it('renders children with escaped text, ids, manual star, and timing', () => {
         const window = loadWindow();
-        const html = window.renderCurrentChild({
-            first_name: '<Ada>',
-            last_name: 'Lovelace',
-            security_code: '1234',
-            checked_out_at_ms: 3 * 60 * 1000,
-            checked_out_confirmed_at: '2024-01-01T00:05:00Z',
-            planning_center_id: 'pc-1',
-            public_id: 'pub-1',
-            source: 'manual'
-        }, 5 * 60 * 1000);
-
-        expect(html).toContain('&lt;Ada&gt;');
-        expect(html).toContain('/static/img/star.svg');
-        expect(html).toContain('2 min ago');
-        expect(html).toContain('data-confirmed-state="confirmed"');
-        expect(html).toContain('data-child-id="manual:pub-1"');
-        expect(html).toContain('---');
-    });
-
-    it('renders previously called children with ids and timing', () => {
-        const window = loadWindow();
-        const html = window.renderPreviouslyCalled([
+        const html = window.renderChildren([
+            {
+                first_name: '<Ada>',
+                last_name: 'Lovelace',
+                security_code: '1234',
+                checked_out_at_ms: 3 * 60 * 1000,
+                checked_out_confirmed_at: '2024-01-01T00:05:00Z',
+                planning_center_id: 'pc-1',
+                public_id: 'pub-1',
+                source: 'manual'
+            },
             {
                 first_name: 'Sam',
                 last_name: '<Test>',
@@ -112,21 +96,31 @@ describe('checkoutsv1/checkouts', () => {
                 planning_center_id: '11',
                 source: 'planning_center'
             }
-        ], 3 * 60 * 1000);
+        ], 5 * 60 * 1000);
 
+        expect(html).toContain('&lt;Ada&gt;');
+        expect(html).toContain('/static/img/star.svg');
+        expect(html).toContain('data-confirmed-state="confirmed"');
+        expect(html).toContain('data-child-id="manual:pub-1"');
+        expect(html).toContain('---');
         expect(html).toContain('data-child-id="pc:11"');
         expect(html).toContain('&lt;Test&gt;');
         expect(html).toContain('2 min ago');
     });
 
-    it('clears current child fields on fetch error', async () => {
+    it('renders empty state when no children have been called', () => {
+        const window = loadWindow();
+        const html = window.renderChildren([], Date.now());
+        expect(html).toContain('No children called yet');
+    });
+
+    it('shows error state in children list on fetch error', async () => {
         const html = `<!doctype html>
             <html>
                 <body>
-                    <div id="current-child-name">Old Name</div>
-                    <div id="current-child-code">1234</div>
-                    <div id="current-child-time">5 min ago</div>
-                    <div id="previously-called-list"></div>
+                    <div id="children-list">
+                        <div class="child-time" data-child-id="pc:1">5 min ago</div>
+                    </div>
                 </body>
             </html>`;
         const window = loadWindow({
@@ -145,10 +139,7 @@ describe('checkoutsv1/checkouts', () => {
             window.console.error = originalConsoleError;
         }
 
-        expect(window.document.getElementById('current-child-name').textContent).toBe('Error loading data');
-        expect(window.document.getElementById('current-child-code').textContent).toBe('----');
-        expect(window.document.getElementById('current-child-time').textContent).toBe('0 min ago');
-        expect(window.document.getElementById('previously-called-list').innerHTML)
+        expect(window.document.getElementById('children-list').innerHTML)
             .toContain('Error loading data. Please try again.');
     });
 
@@ -156,12 +147,7 @@ describe('checkoutsv1/checkouts', () => {
         const html = `<!doctype html>
             <html>
                 <body>
-                    <div id="current-child-card">
-                        <label data-confirmed-label data-confirmed-state="unconfirmed">
-                            <input type="checkbox" class="child-confirmed-checkbox" data-child-id="manual:pub-1">
-                        </label>
-                    </div>
-                    <div id="previously-called-list">
+                    <div id="children-list">
                         <label data-confirmed-label data-confirmed-state="unconfirmed">
                             <input type="checkbox" class="child-confirmed-checkbox" data-child-id="manual:pub-1">
                         </label>

@@ -6,16 +6,11 @@ const DEBUG = new URLSearchParams(window.location.search).has('debug');
 let childrenData = [];
 let childrenFetchController = null;
 let childTimeElementsById = new Map();
-let lastCurrentSignature = '';
 let lastListSignature = '';
 const CONFIRM_OVERRIDE_TTL_MS = 15000;
 const confirmationOverrides = new Map();
 const dom = {
-    currentChildName: null,
-    currentChildCode: null,
-    currentChildTime: null,
-    currentChildCard: null,
-    previouslyCalledList: null,
+    childrenList: null,
     currentTime: null
 };
 
@@ -127,7 +122,7 @@ function syncConfirmedStates() {
         confirmedById.set(childId, confirmed);
     });
 
-    const roots = [dom.currentChildCard, dom.previouslyCalledList].filter(Boolean);
+    const roots = [dom.childrenList].filter(Boolean);
     roots.forEach((root) => {
         root.querySelectorAll('.child-confirmed-checkbox[data-child-id]').forEach((checkbox) => {
             const childId = checkbox.dataset.childId;
@@ -144,11 +139,11 @@ function syncConfirmedStates() {
     });
 }
 
-function clampPreviouslyCalledScroll() {
-    if (!dom.previouslyCalledList) return;
-    const maxScrollTop = Math.max(0, dom.previouslyCalledList.scrollHeight - dom.previouslyCalledList.clientHeight);
-    if (dom.previouslyCalledList.scrollTop > maxScrollTop) {
-        dom.previouslyCalledList.scrollTop = maxScrollTop;
+function clampChildrenListScroll() {
+    if (!dom.childrenList) return;
+    const maxScrollTop = Math.max(0, dom.childrenList.scrollHeight - dom.childrenList.clientHeight);
+    if (dom.childrenList.scrollTop > maxScrollTop) {
+        dom.childrenList.scrollTop = maxScrollTop;
     }
 }
 
@@ -239,19 +234,7 @@ function updateTimes() {
         return;
     }
     const nowMs = Date.now();
-    // Update current child time
-    const currentChild = childrenData[0];
-    const checkedOutAtMs = currentChild.checked_out_at_ms ?? getCheckedOutTimestamp(currentChild.checked_out_at);
-    const timeAgo = calculateMinutesAgoFromTimestamp(checkedOutAtMs, nowMs);
-    if (!dom.currentChildTime) {
-        dom.currentChildTime = document.getElementById('current-child-time');
-    }
-    if (dom.currentChildTime && dom.currentChildTime.textContent !== timeAgo) {
-        dom.currentChildTime.textContent = timeAgo;
-    }
-
-    // Update previously called children times
-    childrenData.slice(1, 100).forEach((child) => {
+    childrenData.slice(0, 100).forEach((child) => {
         const id = getChildId(child);
         const element = childTimeElementsById.get(id);
         if (!element) return;
@@ -338,33 +321,14 @@ async function fetchChildrenData() {
         if (error?.name === 'AbortError') return;
         console.error('Error fetching children data:', error);
         childrenData = [];
-        lastCurrentSignature = '';
         lastListSignature = '';
-        if (!dom.currentChildName) {
-            dom.currentChildName = document.getElementById('current-child-name');
+        if (!dom.childrenList) {
+            dom.childrenList = document.getElementById('children-list');
         }
-        if (dom.currentChildName) {
-            dom.currentChildName.textContent = 'Error loading data';
-        }
-        if (!dom.currentChildCode) {
-            dom.currentChildCode = document.getElementById('current-child-code');
-        }
-        if (dom.currentChildCode) {
-            dom.currentChildCode.textContent = '----';
-        }
-        if (!dom.currentChildTime) {
-            dom.currentChildTime = document.getElementById('current-child-time');
-        }
-        if (dom.currentChildTime) {
-            dom.currentChildTime.textContent = '0 min ago';
-        }
-        if (!dom.previouslyCalledList) {
-            dom.previouslyCalledList = document.getElementById('previously-called-list');
-        }
-        if (dom.previouslyCalledList) {
-            dom.previouslyCalledList.innerHTML =
+        if (dom.childrenList) {
+            dom.childrenList.innerHTML =
                 '<div class="text-center text-red-500 py-8">Error loading data. Please try again.</div>';
-            dom.previouslyCalledList.scrollTop = 0;
+            dom.childrenList.scrollTop = 0;
         }
     } finally {
         API_CALL_BLOCKS.fetchChildrenData = false;
@@ -376,100 +340,34 @@ async function fetchChildrenData() {
 
 // Function to update the UI with fetched data
 function updateUI() {
-    if (!dom.currentChildCard) {
-        dom.currentChildCard = document.getElementById('current-child-card');
-    }
-    if (!dom.previouslyCalledList) {
-        dom.previouslyCalledList = document.getElementById('previously-called-list');
+    if (!dom.childrenList) {
+        dom.childrenList = document.getElementById('children-list');
     }
 
     const nowMs = Date.now();
-    const currentSignature = getChildSignature(childrenData[0]);
-    if (dom.currentChildCard && currentSignature !== lastCurrentSignature) {
-        const currentMarkup = renderCurrentChild(childrenData[0], nowMs);
-        morphChildren(dom.currentChildCard, currentMarkup);
-        lastCurrentSignature = currentSignature;
-        dom.currentChildTime = document.getElementById('current-child-time');
-    }
 
     const listSignature = childrenData
-        .slice(1, 100)
+        .slice(0, 100)
         .map(getChildSignature)
         .join('||');
-    if (dom.previouslyCalledList && listSignature !== lastListSignature) {
-        const previousScrollTop = dom.previouslyCalledList.scrollTop;
-        const previouslyCalledChildren = childrenData.slice(1, 100);
-        const listMarkup = renderPreviouslyCalled(previouslyCalledChildren, nowMs);
-        morphChildren(dom.previouslyCalledList, listMarkup);
-        cacheChildTimeElements(dom.previouslyCalledList);
+    if (dom.childrenList && listSignature !== lastListSignature) {
+        const previousScrollTop = dom.childrenList.scrollTop;
+        const markup = renderChildren(childrenData.slice(0, 100), nowMs);
+        morphChildren(dom.childrenList, markup);
+        cacheChildTimeElements(dom.childrenList);
         requestAnimationFrame(() => {
-            if (!dom.previouslyCalledList) return;
-            const maxScrollTop = Math.max(0, dom.previouslyCalledList.scrollHeight - dom.previouslyCalledList.clientHeight);
-            dom.previouslyCalledList.scrollTop = Math.min(previousScrollTop, maxScrollTop);
+            if (!dom.childrenList) return;
+            const maxScrollTop = Math.max(0, dom.childrenList.scrollHeight - dom.childrenList.clientHeight);
+            dom.childrenList.scrollTop = Math.min(previousScrollTop, maxScrollTop);
         });
         lastListSignature = listSignature;
     }
     syncConfirmedStates();
 }
 
-function renderCurrentChild(child, nowMs) {
-    if (!child) {
-        return `
-            <div id="current-child-name" class="font-bold text-4xl lg:text-6xl lg:text-7xl text-gray-800 mb-1 lg:mb-3">
-                No children called yet
-            </div>
-            <div class="flex items-center gap-4">
-                <div id="current-child-code" class="text-3xl lg:text-6xl text-black mr-4">
-                    ----
-                </div>
-                <div id="current-child-time" class="text-xl lg:text-xl text-white bg-gray-400 px-2 py-0 lg:px-2 lg:py-1 rounded-md">
-                    0 min ago
-                </div>
-                <label class="relative flex items-center cursor-pointer leading-none" data-confirmed-label data-confirmed-state="unconfirmed">
-                    <input id="current-child-confirmed" type="checkbox" class="sr-only child-confirmed-checkbox">
-                    <span class="inline-flex">
-                        <img src="${CONFIRMED_ICON_SRC}" alt="" class="h-10 w-10 block" data-confirmed-icon>
-                    </span>
-                </label>
-            </div>
-        `;
-    }
-
-    const name = `${escapeHtml(child.first_name)} ${escapeHtml(child.last_name)}`;
-    const code = child.source === 'manual' ? '---' : escapeHtml(child.security_code || '----');
-    const confirmed = Boolean(child.checked_out_confirmed_at);
-    const planningCenterId = escapeHtml(child.planning_center_id || '');
-    const publicId = escapeHtml(child.public_id || '');
-    const source = escapeHtml(child.source || '');
-    const starMarkup = getManualCheckinStarMarkup(child.source);
-    const checkedOutAtMs = child.checked_out_at_ms ?? getCheckedOutTimestamp(child.checked_out_at);
-    const childId = escapeHtml(getChildId(child));
-
-    return `
-        <div id="current-child-name" class="font-bold text-4xl lg:text-6xl lg:text-7xl text-gray-800 mb-1 lg:mb-3">
-            ${name}${starMarkup}
-        </div>
-        <div class="flex items-center gap-4">
-            <div id="current-child-code" class="text-3xl lg:text-6xl text-black mr-4">
-                ${code}
-            </div>
-            <div id="current-child-time" class="text-xl lg:text-xl text-white bg-gray-400 px-2 py-0 lg:px-2 lg:py-1 rounded-md">
-                ${calculateMinutesAgoFromTimestamp(checkedOutAtMs, nowMs)}
-            </div>
-            <label class="relative flex items-center cursor-pointer leading-none" data-confirmed-label data-confirmed-state="${confirmed ? 'confirmed' : 'unconfirmed'}">
-                <input id="current-child-confirmed" type="checkbox" class="sr-only child-confirmed-checkbox"
-                    data-child-id="${childId}" data-planning-center-id="${planningCenterId}" data-public-id="${publicId}" data-source="${source}" ${confirmed ? 'checked' : ''}>
-                <span class="inline-flex">
-                    <img src="${CONFIRMED_ICON_SRC}" alt="" class="h-10 w-10 block" data-confirmed-icon>
-                </span>
-            </label>
-        </div>
-    `;
-}
-
-function renderPreviouslyCalled(children, nowMs) {
+function renderChildren(children, nowMs) {
     if (children.length === 0) {
-        return '<div class="text-center text-gray-500 py-8">No previous calls</div>';
+        return '<div class="text-center text-gray-500 py-8">No children called yet</div>';
     }
 
     return children.map((child) => {
@@ -497,7 +395,7 @@ function renderPreviouslyCalled(children, nowMs) {
                             ${calculateMinutesAgoFromTimestamp(checkedOutAtMs, nowMs)}
                         </div>
                         <label class="relative flex items-center text-xs text-gray-600 cursor-pointer leading-none" data-confirmed-label data-confirmed-state="${confirmed ? 'confirmed' : 'unconfirmed'}">
-                            <input type="checkbox" class="sr-only child-confirmed-checkbox"
+                            <input type="checkbox" class="sr-only child-confirmed-checkbox" aria-label="Mark ${name} as confirmed"
                                 data-child-id="${childId}" data-planning-center-id="${planningCenterId}" data-public-id="${publicId}" data-source="${source}" ${confirmed ? 'checked' : ''}>
                             <img src="${CONFIRMED_ICON_SRC}" alt="" class="h-10 w-10 block" data-confirmed-icon>
                         </label>
@@ -546,15 +444,11 @@ function updateAllTimes() {
 
 // Initialize and start periodic updates
 document.addEventListener('DOMContentLoaded', function () {
-    dom.currentChildCard = document.getElementById('current-child-card');
-    dom.previouslyCalledList = document.getElementById('previously-called-list');
-    dom.currentChildName = document.getElementById('current-child-name');
-    dom.currentChildCode = document.getElementById('current-child-code');
+    dom.childrenList = document.getElementById('children-list');
     dom.currentTime = document.getElementById('current-time');
-    dom.currentChildTime = document.getElementById('current-child-time');
 
     window.addEventListener('resize', () => {
-        requestAnimationFrame(clampPreviouslyCalledScroll);
+        requestAnimationFrame(clampChildrenListScroll);
     });
 
     document.addEventListener('change', function (event) {

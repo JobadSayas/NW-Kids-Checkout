@@ -16,13 +16,13 @@ RUN apk add --no-cache gcc musl-dev sqlite-dev
 # Fix musl sqlite3 LFS symbols (pread64/pwrite64/off64_t)
 ENV CGO_CFLAGS="-Dpread64=pread -Dpwrite64=pwrite -Doff64_t=off_t"
 
-# Download dependencies first for caching
-COPY go.mod go.sum ./
-RUN go mod download
-
 # Install migrate binary (SQLite driver requires CGO + sqlite3 build tag)
 ARG MIGRATE_VERSION=v4.17.1
 RUN GOBIN=/app/bin go install -tags 'sqlite3' github.com/golang-migrate/migrate/v4/cmd/migrate@${MIGRATE_VERSION}
+
+# Download dependencies first for caching
+COPY go.mod go.sum ./
+RUN go mod download
 
 # Copy source code
 COPY . .

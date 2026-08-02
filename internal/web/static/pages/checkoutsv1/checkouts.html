@@ -12,7 +12,7 @@
     <!-- Tailwind CSS CDN -->
     <!-- <script src="https://cdn.tailwindcss.com"></script> -->
     <!-- Tailwind local -->
-    <link rel="stylesheet" href="/static/css/tailwind.css?v=bd590fa602d2">
+    <link rel="stylesheet" href="/static/css/tailwind.css?v=dev">
 
     <style>
         :root {
@@ -49,7 +49,7 @@
          class="absolute right-0 bottom-0 h-[200px] w-auto m:h-auto object-cover object-bottom lg:h-auto lg:w-[40%] z-0">
 </div>
 
-<header class="relative flex justify-between items-center w-full z-20 px-6 py-4 lg:fixed lg:w-8/12">
+<header class="relative flex justify-between items-center w-full z-20 px-6 py-4 lg:fixed">
     <div class="flex justify-between items-center">
         <a href="/">
             <img src="/static/img/NWKids-logo.svg" alt="NWKids Logo" class="h-16 md:h-24 w-auto">
@@ -64,54 +64,17 @@
 </header>
 
 <!-- Main Content -->
-<div class="relative z-10 min-h-screen flex flex-col box-border lg:h-screen lg:flex-row lg:pt-28">
-    <!-- Left Panel - Currently Called (Desktop: 8/12, Mobile: full width) -->
-    <div class="lg:w-8/12 lg:h-full flex items-start lg:items-center px-6 pt-1 pb-5 lg:py-0 flex-none lg:flex-none">
-        <div class="w-full" id="current-child-card">
-            <!-- Name -->
-            <div id="current-child-name" class="font-bold text-4xl lg:text-6xl lg:text-7xl text-gray-800 mb-1 lg:mb-3">
-                Loading...
-            </div>
-
-            <!-- Code, time, and confirmed -->
-            <div class="flex items-center gap-4">
-                <div id="current-child-code" class="text-3xl lg:text-6xl text-black mr-4">
-                    ...
-                </div>
-                <div id="current-child-time"
-                     class="text-xl lg:text-xl text-white bg-gray-400 px-2 py-0 lg:px-2 lg:py-1 rounded-md">
-                    0 min ago
-                </div>
-                <label class="relative flex items-center cursor-pointer leading-none" data-confirmed-label data-confirmed-state="unconfirmed">
-                    <input id="current-child-confirmed" type="checkbox"
-                           class="sr-only child-confirmed-checkbox">
-                    <span class="inline-flex">
-                        <img src="/static/img/confirmed-checkbox.svg" alt="" class="h-10 w-10 block" data-confirmed-icon>
-                    </span>
-                </label>
-            </div>
-        </div>
-    </div>
-
-    <!-- Right Panel - Previously Called (Desktop: 4/12 with internal scroll, Mobile: full width) -->
-    <div class="lg:w-4/12 lg:h-full min-h-0 border-t border-gray-300 lg:border-t-0 flex-none lg:flex-1">
-        <div class="lg:h-full min-h-0 flex flex-col lg:px-0 lg:px-0 py-4 lg:pt-4 lg:pb-0">
-            <div class="flex items-center justify-between px-4 mb-3">
-                <h2 class="text-xl font-bold text-gray-800">Previously Called</h2>
-            </div>
-
-            <!-- Scrollable cards container -->
-            <div id="previously-called-list" class="lg:flex-1 lg:min-h-0 overflow-visible lg:overflow-y-auto hide-scrollbar space-y-3 px-4 py-2">
-                <!-- Cards will be dynamically inserted here -->
-                <div class="text-center text-gray-500 py-8">
-                    Loading children data...
-                </div>
-            </div>
+<div class="relative z-10 min-h-screen flex flex-col box-border lg:h-screen lg:pt-28">
+    <!-- Scrollable children list (list on mobile, grid on desktop) -->
+    <div id="children-list" class="grid grid-cols-1 gap-3 px-4 py-4 md:grid-cols-2 lg:flex-1 lg:min-h-0 lg:overflow-y-auto lg:content-start lg:grid-cols-3">
+        <!-- Cards will be dynamically inserted here -->
+        <div class="text-center text-gray-500 py-8">
+            Loading children data...
         </div>
     </div>
 </div>
 
-<script src="/static/js/morphdom-umd.min.js?v=ad1aaf5441eb"></script>
-<script src="/static/pages/checkoutsv1/checkouts.js?v=62225b6a1dc9"></script>
+<script src="/static/js/morphdom-umd.min.js?v=dev"></script>
+<script src="/static/pages/checkoutsv1/checkouts.js?v=dev"></script>
 </body>
 </html>
