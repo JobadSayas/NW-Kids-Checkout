@@ -92,10 +92,6 @@ function getEventName(location) {
     return event.name || 'Unnamed event';
 }
 
-function isEventAutoFetchEnabled(event) {
-    return event.auto_fetch == true;
-}
-
 function renderLocations() {
     locationsBody.innerHTML = '';
 
@@ -119,11 +115,6 @@ function renderLocations() {
         const eventName = event?.name || 'Unnamed event';
 
         const eventLocations = locations.filter(loc => Number(loc.event_id) === eventId);
-
-        const eventAutoFetchEnabled = isEventAutoFetchEnabled(event);
-        eventLocations.forEach(loc => {
-            loc.effectiveAutoFetch = eventAutoFetchEnabled ? true : loc.auto_fetch;
-        });
 
         const eventRow = document.createElement('tr');
         eventRow.classList.add('bg-slate-100');
@@ -235,19 +226,10 @@ function renderLocations() {
                         `).join('')}
                     </select>
                 </td>
-                <td class="px-4 py-4">
-                    <label class="flex items-center gap-3 text-sm text-slate-700 ${eventAutoFetchEnabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}">
-                        <span class="relative inline-flex h-5 w-9 items-center">
-                            <input type="checkbox" class="auto-fetch-toggle peer absolute opacity-0 w-0 h-0" ${location.effectiveAutoFetch ? 'checked' : ''} ${eventAutoFetchEnabled ? 'disabled' : ''}>
-                            <span class="toggle-bg h-5 w-9 rounded-full" style="background-color: ${eventAutoFetchEnabled ? (location.effectiveAutoFetch ? 'var(--color-emerald-500)' : 'var(--color-slate-300)') : (location.effectiveAutoFetch ? 'var(--color-emerald-500)' : 'var(--color-slate-200)')}"></span>
-                            <span class="toggle-knob absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow" style="transform: ${location.effectiveAutoFetch ? 'translateX(1rem)' : 'translateX(0)'}"></span>
-                        </span>
-                    </label>
-                </td>
+                <td class="px-4 py-4"></td>
             `;
 
             const select = row.querySelector('.location-group-select');
-            const toggle = row.querySelector('.auto-fetch-toggle');
 
             select.addEventListener('change', async () => {
                 const previousValue = location.location_group_id ?? '';
@@ -263,41 +245,6 @@ function renderLocations() {
                 }
 
                 select.disabled = false;
-            });
-
-            toggle.addEventListener('change', async () => {
-                const previousValue = location.auto_fetch;
-                const nextValue = toggle.checked;
-
-                const toggleBg = row.querySelector('.toggle-bg');
-                const toggleKnob = row.querySelector('.toggle-knob');
-
-                if (nextValue) {
-                    toggleBg.style.backgroundColor = 'var(--color-emerald-500)';
-                    toggleKnob.style.transform = 'translateX(1rem)';
-                } else {
-                    toggleBg.style.backgroundColor = 'var(--color-slate-200)';
-                    toggleKnob.style.transform = 'translateX(0)';
-                }
-
-                toggle.disabled = true;
-
-                const success = await updateLocation(location, { auto_fetch: nextValue });
-                if (!success) {
-                    toggle.checked = previousValue;
-                    if (previousValue) {
-                        toggleBg.style.backgroundColor = 'var(--color-emerald-500)';
-                        toggleKnob.style.transform = 'translateX(1rem)';
-                    } else {
-                        toggleBg.style.backgroundColor = 'var(--color-slate-200)';
-                        toggleKnob.style.transform = 'translateX(0)';
-                    }
-                } else {
-                    location.auto_fetch = nextValue;
-                    renderLocations();
-                }
-
-                toggle.disabled = false;
             });
 
             locationsBody.appendChild(row);
@@ -318,7 +265,6 @@ async function updateLocation(location, payload) {
         });
 
         if (updated) {
-            location.auto_fetch = updated.auto_fetch;
             location.location_group_id = updated.location_group_id;
         }
         return true;
