@@ -39,7 +39,6 @@ func TestController_ListLocationsIncludesEventID(t *testing.T) {
 		PlanningCenterID: "pcloc_evt",
 		EventID:          insertedID,
 		Name:             "Event Room",
-		AutoFetch:        false,
 	})
 	require.NoError(t, err)
 
@@ -72,12 +71,11 @@ func TestController_PatchUpdateLocation(t *testing.T) {
 		PlanningCenterID: "pcloc_patch_1",
 		EventID:          1,
 		Name:             "Patch Test Room",
-		AutoFetch:        false,
 		LocationGroupID:  nil,
 	})
 	require.NoError(t, err)
 
-	t.Run("success update auto_fetch", func(t *testing.T) {
+	t.Run("ignores auto_fetch in payload", func(t *testing.T) {
 		payload := map[string]interface{}{
 			"auto_fetch": true,
 		}
@@ -89,34 +87,15 @@ func TestController_PatchUpdateLocation(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, fiber.StatusOK, resp.StatusCode)
 
-		var updated Location
+		var updated map[string]interface{}
 		err = json.NewDecoder(resp.Body).Decode(&updated)
 		require.NoError(t, err)
-		assert.True(t, updated.AutoFetch)
-	})
-
-	t.Run("update auto_fetch to false", func(t *testing.T) {
-		payload := map[string]interface{}{
-			"auto_fetch": false,
-		}
-		body, _ := json.Marshal(payload)
-
-		req := httptest.NewRequest("PATCH", fmt.Sprintf("/v1/locations/%d", created.ID), bytes.NewReader(body))
-		req.Header.Set("Content-Type", "application/json")
-		resp, err := app.Test(req)
-		require.NoError(t, err)
-		require.Equal(t, fiber.StatusOK, resp.StatusCode)
-
-		var updated Location
-		err = json.NewDecoder(resp.Body).Decode(&updated)
-		require.NoError(t, err)
-		assert.False(t, updated.AutoFetch)
+		_, hasAutoFetch := updated["auto_fetch"]
+		assert.False(t, hasAutoFetch)
 	})
 
 	t.Run("not found", func(t *testing.T) {
-		payload := map[string]interface{}{
-			"auto_fetch": true,
-		}
+		payload := map[string]interface{}{}
 		body, _ := json.Marshal(payload)
 
 		req := httptest.NewRequest("PATCH", "/v1/locations/9999", bytes.NewReader(body))
@@ -127,9 +106,7 @@ func TestController_PatchUpdateLocation(t *testing.T) {
 	})
 
 	t.Run("invalid location id", func(t *testing.T) {
-		payload := map[string]interface{}{
-			"auto_fetch": true,
-		}
+		payload := map[string]interface{}{}
 		body, _ := json.Marshal(payload)
 
 		req := httptest.NewRequest("PATCH", "/v1/locations/not-a-number", bytes.NewReader(body))
@@ -309,6 +286,22 @@ func TestController_GetListLocations(t *testing.T) {
 		err = json.NewDecoder(resp.Body).Decode(&payload)
 		require.NoError(t, err)
 		require.Len(t, payload, 2)
+	})
+
+	t.Run("response contains no auto_fetch field", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/v1/locations", nil)
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		require.Equal(t, fiber.StatusOK, resp.StatusCode)
+
+		var payload []map[string]interface{}
+		err = json.NewDecoder(resp.Body).Decode(&payload)
+		require.NoError(t, err)
+		require.Len(t, payload, 2)
+		for _, item := range payload {
+			_, hasAutoFetch := item["auto_fetch"]
+			assert.False(t, hasAutoFetch)
+		}
 	})
 }
 

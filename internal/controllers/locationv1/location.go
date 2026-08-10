@@ -107,14 +107,6 @@ func (controller *Controller) PatchUpdateLocation(c *fiber.Ctx) error {
 		}
 	}
 
-	if raw, ok := payload["auto_fetch"]; ok {
-		var autoFetch bool
-		if err := json.Unmarshal(raw, &autoFetch); err != nil {
-			return fiber.NewError(fiber.StatusBadRequest, "invalid auto_fetch")
-		}
-		current.AutoFetch = autoFetch
-	}
-
 	if err := controller.repo.UpdateLocation(c.Context(), current); err != nil {
 		if errors.Is(err, repo.ErrNotFound) {
 			return fiber.NewError(fiber.StatusNotFound, "location not found")
@@ -132,7 +124,6 @@ type Location struct {
 	PlanningCenterParentID *string `json:"planning_center_parent_id"`
 	EventID                int64   `json:"event_id"`
 	LocationGroupID        *int64  `json:"location_group_id"`
-	AutoFetch              bool    `json:"auto_fetch"`
 }
 
 func repoLocationToOutput(location location.Location) Location {
@@ -143,7 +134,6 @@ func repoLocationToOutput(location location.Location) Location {
 		PlanningCenterParentID: location.PlanningCenterParentID,
 		EventID:                location.EventID,
 		LocationGroupID:        location.LocationGroupID,
-		AutoFetch:              location.AutoFetch,
 	}
 }
 
