@@ -26,7 +26,6 @@ func Test_sqliteRepo_ListLocations(t *testing.T) {
 	t.Run("some filtered locations", func(t *testing.T) {
 		group, err := s.CreateLocationGroup(t.Context(), LocationGroup{Name: "group-a"})
 		require.NoError(t, err)
-		autoFetch := true
 		parentID := "parent-1"
 		lastCheckedOut := time.Date(2022, 1, 1, 10, 0, 0, 0, time.UTC)
 		location, err := s.CreateLocation(t.Context(), Location{
@@ -35,7 +34,6 @@ func Test_sqliteRepo_ListLocations(t *testing.T) {
 			EventID:                2,
 			LocationGroupID:        &group.ID,
 			Name:                   "Cool location",
-			AutoFetch:              true,
 			LastCheckedOutTime:     lastCheckedOut,
 		})
 		require.NoError(t, err)
@@ -57,7 +55,6 @@ func Test_sqliteRepo_ListLocations(t *testing.T) {
 		assert.NotNil(t, locations[0].LocationGroupID)
 		assert.Equal(t, group.ID, *locations[0].LocationGroupID)
 		assert.Equal(t, "Cool location", locations[0].Name)
-		assert.True(t, locations[0].AutoFetch)
 		assert.Equal(t, lastCheckedOut, locations[0].LastCheckedOutTime)
 
 		locations, err = s.ListLocations(t.Context(), LocationFilter{PlanningCenterID: "pcloc_1234"})
@@ -73,10 +70,6 @@ func Test_sqliteRepo_ListLocations(t *testing.T) {
 		assert.Len(t, locations, 1)
 
 		locations, err = s.ListLocations(t.Context(), LocationFilter{EventID: 2})
-		require.NoError(t, err)
-		assert.Len(t, locations, 1)
-
-		locations, err = s.ListLocations(t.Context(), LocationFilter{AutoFetch: &autoFetch})
 		require.NoError(t, err)
 		assert.Len(t, locations, 1)
 	})
@@ -145,7 +138,6 @@ func Test_sqliteRepo_CreateLocation(t *testing.T) {
 			EventID:                3,
 			LocationGroupID:        &group.ID,
 			Name:                   "Optional location",
-			AutoFetch:              true,
 			LastCheckedOutTime:     lastCheckedOut,
 		})
 		require.NoError(t, err)
@@ -176,7 +168,6 @@ func Test_sqliteRepo_UpdateLocation(t *testing.T) {
 		EventID:                4,
 		LocationGroupID:        &group.ID,
 		Name:                   "Original location",
-		AutoFetch:              false,
 	})
 	require.NoError(t, err)
 
@@ -192,7 +183,6 @@ func Test_sqliteRepo_UpdateLocation(t *testing.T) {
 		EventID:                5,
 		LocationGroupID:        &updatedGroup.ID,
 		Name:                   "Updated location",
-		AutoFetch:              true,
 		LastCheckedOutTime:     updatedTime,
 	})
 	require.NoError(t, err)
@@ -201,7 +191,6 @@ func Test_sqliteRepo_UpdateLocation(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, locations, 1)
 	assert.Equal(t, "Updated location", locations[0].Name)
-	assert.True(t, locations[0].AutoFetch)
 	assert.Equal(t, updatedTime, locations[0].LastCheckedOutTime)
 	assert.NotNil(t, locations[0].PlanningCenterParentID)
 	assert.Equal(t, updatedParent, *locations[0].PlanningCenterParentID)
@@ -220,7 +209,6 @@ func Test_sqliteRepo_UpdateLocation_NotFound(t *testing.T) {
 		PlanningCenterID: "missing",
 		EventID:          1,
 		Name:             "Missing",
-		AutoFetch:        false,
 	})
 	assert.ErrorIs(t, err, repo.ErrNotFound)
 }

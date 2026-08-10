@@ -9,7 +9,6 @@ import (
 	"math/rand"
 	"os"
 	"os/signal"
-	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -27,77 +26,8 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-func FetchCheckoutsV1(ctx context.Context, cmd *cli.Command) error {
-	dbFile := cmd.String("db-file")
-	database, err := db.InitDB(dbFile)
-	if err != nil {
-		panic(err)
-	}
-
-	defer database.Close()
-
-	interval := cmd.Duration("interval")
-	if interval <= 0 {
-		return errors.New("interval must be greater than 0")
-	}
-
-	locationUpdateInterval := cmd.Duration("location-update-interval")
-	if locationUpdateInterval <= 0 {
-		return errors.New("location-update-interval must be greater than 0")
-	}
-
-	runtime := cmd.Duration("runtime")
-	if runtime <= 0 {
-		return errors.New("runtime must be greater than 0")
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, runtime)
-	defer cancel()
-
-	c := make(chan os.Signal)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-c
-		os.Exit(1)
-	}()
-
-	pcClient, checkinRepo, locationsRepo, _ := getClients(database)
-
-	ctx = logger.WithLogger(ctx, slog.With(slog.String("worker", "checkout-fetcher-v1")))
-
-	logger.FromContext(ctx).InfoContext(ctx, "starting checkout fetcher (by location)",
-		slog.Duration("interval", interval),
-		slog.Duration("location_update_interval", locationUpdateInterval),
-		slog.Duration("runtime", runtime),
-		slog.String("db_file", dbFile))
-
-	for {
-		if ctx.Err() != nil {
-			break
-		}
-
-		logger.FromContext(ctx).InfoContext(ctx, "checking for locations that need updating")
-
-		err = checkoutLoop(ctx, locationsRepo, checkinRepo, pcClient, locationUpdateInterval)
-		if err != nil {
-			if ctx.Err() != nil {
-				break
-			}
-			return fmt.Errorf("failed to checkoutLoop: %w", err)
-		}
-
-		time.Sleep(interval)
-	}
-
-	return nil
-}
-
 func FetchCheckouts(ctx context.Context, cmd *cli.Command) error {
-	fetchByEvent := cmd.Bool("fetch-by-event")
-	if fetchByEvent {
-		return FetchCheckoutsV2(ctx, cmd)
-	}
-	return FetchCheckoutsV1(ctx, cmd)
+	return FetchCheckoutsV2(ctx, cmd)
 }
 
 // FetchCheckoutsV2 runs the by-event checkout fetcher. It periodically polls
@@ -363,119 +293,6 @@ func processEventCheckouts(ctx context.Context, ev event.Event, checkinRepo chec
 	currentEvent.LastCheckedOutTime = newLastCheckedOut
 }
 
-func checkoutLoop(ctx context.Context, locationRepo location.Repo, checkinRepo checkin.Repo, pcClient planningcenter.Client, locationUpdateInterval time.Duration) error {
-	autoFetch := true
-	locations, err := locationRepo.ListLocations(ctx, location.LocationFilter{
-		AutoFetch: &autoFetch,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to list locations: %w", err)
-	}
-
-	// Filter locations that need updating (haven't been updated in locationUpdateInterval)
-	var locationsToUpdate []location.Location
-	now := time.Now()
-	for _, loc := range locations {
-		// If location has never been updated, or was updated more than locationUpdateInterval ago, include it
-		if loc.LastCheckedOutTime.IsZero() || now.Sub(loc.LastCheckedOutTime) >= locationUpdateInterval {
-			locationsToUpdate = append(locationsToUpdate, loc)
-		}
-	}
-
-	if len(locationsToUpdate) == 0 {
-		logger.FromContext(ctx).InfoContext(ctx, "no locations need updating")
-		return nil
-	}
-
-	logger.FromContext(ctx).InfoContext(ctx, "processing locations that need updating", slog.Int("total_locations", len(locations)), slog.Int("locations_to_update", len(locationsToUpdate)))
-
-	var (
-		wg    sync.WaitGroup
-		errs  []error
-		errMu sync.Mutex                                 // Mutex to protect errs
-		sem   = make(chan struct{}, 5)                   // Semaphore to limit concurrency to 5
-		errCh = make(chan error, len(locationsToUpdate)) // Buffered channel for errors
-	)
-
-loop:
-	for _, loc := range locationsToUpdate {
-		select {
-		case <-ctx.Done():
-			// Context cancelled, stop launching new goroutines
-			errs = append(errs, ctx.Err())
-			break loop
-		case sem <- struct{}{}: // Acquire a slot in the semaphore
-			wg.Add(1)
-			go func(loc location.Location) {
-				defer wg.Done()
-				defer func() { <-sem }() // Release the slot
-				processLocationCheckouts(ctx, loc, checkinRepo, locationRepo, pcClient, errCh)
-			}(loc)
-		}
-	}
-
-	wg.Wait()
-	close(errCh)
-
-	for err := range errCh {
-		errMu.Lock()
-		errs = append(errs, err)
-		errMu.Unlock()
-	}
-
-	if len(errs) > 0 {
-		return errors.Join(errs...)
-	}
-
-	return nil
-}
-
-// processLocationCheckouts fetches checkouts for a given location and updates the database.
-func processLocationCheckouts(ctx context.Context, loc location.Location, checkinRepo checkin.Repo, locationRepo location.Repo, pcClient planningcenter.Client, errCh chan<- error) {
-	timeToUse := loc.LastCheckedOutTime
-	if timeToUse.Before(time.Now().Add(getLookBackTime())) {
-		timeToUse = time.Now().Add(getLookBackTime())
-	}
-
-	checkouts, err := pcClient.GetCheckoutsForLocation(ctx, loc.PlanningCenterID, timeToUse, 0)
-
-	if err != nil {
-		var timeoutErr *planningcenter.TimeoutError
-		if errors.As(err, &timeoutErr) {
-			logger.FromContext(ctx).WarnContext(ctx, "timeout fetching checkouts for location", slog.String("location_id", loc.PlanningCenterID), slog.String("error", err.Error()), slog.Any("err", err))
-			return
-		}
-		errCh <- fmt.Errorf("failed to fetch checkouts for location %s: %w", loc.PlanningCenterID, err)
-		return
-	}
-	logger.FromContext(ctx).InfoContext(ctx, "fetched checkouts for location", slog.String("location_id", loc.PlanningCenterID), slog.Int("checkouts_count", len(checkouts)))
-
-	for _, checkout := range checkouts {
-		co := checkin.Checkin{
-			PlanningCenterID: checkout.ID,
-			LocationID:       loc.ID,
-			FirstName:        checkout.FirstName,
-			LastName:         checkout.LastName,
-			SecurityCode:     checkout.SecurityCode,
-			CheckedOutAt:     checkout.CheckedOutAt,
-		}
-
-		co, err := checkinRepo.CreateCheckin(ctx, co)
-		if err != nil {
-			errCh <- fmt.Errorf("failed to create checkin: %w", err)
-			return
-		}
-	}
-
-	// Set the last_checked_out_time to current time to track when this location was last processed
-	loc.LastCheckedOutTime = time.Now().UTC()
-	err = locationRepo.UpdateLocation(ctx, loc)
-	if err != nil {
-		errCh <- fmt.Errorf("failed to update location: %w", err)
-		return
-	}
-}
-
 // getLookBackTime returns the time to look back for checkouts based on the CHECKOUT_FETCHER_LOOKBACK_TIME env var
 var getLookBackTime = sync.OnceValue(func() time.Duration {
 	const defaultLookBackTime = -12 * time.Hour
@@ -509,57 +326,6 @@ func getClients(db *sql.DB) (planningcenter.Client, checkin.Repo, location.Repo,
 	eventRepo := event.NewRepo(db)
 
 	var pcClient planningcenter.Client = &planningcenter.MockClient{
-		GetCheckoutsForLocationFunc: func(ctx context.Context, locationID string, olderThan time.Time) ([]planningcenter.Checkout, error) {
-			if rand.Intn(2) == 0 {
-				cw, err := checkinRepo.ListCheckins(ctx, checkin.Filter{})
-				if err != nil {
-					return nil, err
-				}
-
-				if len(cw) != 0 {
-					sort.Slice(cw, func(i, j int) bool {
-						return cw[i].SecurityCode < cw[j].SecurityCode
-					})
-					pcco := make([]planningcenter.Checkout, 0, len(cw)/2)
-					for i := 0; i < len(cw)/2; i++ {
-						// Skip checkins without a checkout time — only process finalized checkouts.
-						if cw[i].CheckedOutAt.IsZero() {
-							continue
-						}
-						pcco = append(pcco, planningcenter.Checkout{
-							ID:           cw[i].PlanningCenterID,
-							FirstName:    cw[i].FirstName,
-							LastName:     cw[i].LastName,
-							CheckedOutAt: time.Now().UTC(),
-							SecurityCode: strings.ToUpper(cw[i].SecurityCode),
-						})
-					}
-					return pcco, nil
-				}
-			}
-
-			locations, err := locationsRepo.ListLocations(ctx, location.LocationFilter{})
-			if err != nil {
-				return nil, err
-			}
-
-			var locID string
-			if len(locations) > 0 {
-				loc := locations[rand.Intn(len(locations))]
-				locID = loc.PlanningCenterID
-			}
-
-			return []planningcenter.Checkout{
-				{
-					ID:                       "pcloc_" + uuid.New().String(),
-					FirstName:                static.RandomFirstName(),
-					LastName:                 static.RandomLastName(),
-					SecurityCode:             strings.ToUpper(uuid.New().String()[:4]),
-					CheckedOutAt:             time.Now().UTC(),
-					PlanningCenterLocationID: locID,
-				},
-			}, nil
-		},
 		GetCheckoutsForEventFunc: func(ctx context.Context, eventID string, checkedOutOnOrAfter time.Time, limit int) ([]planningcenter.Checkout, error) {
 			locations, err := locationsRepo.ListLocations(ctx, location.LocationFilter{})
 			if err != nil {

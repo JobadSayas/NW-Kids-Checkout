@@ -124,7 +124,6 @@ func (controller *Controller) PostCreateEvent(c *fiber.Ctx) error {
 			PlanningCenterID:       pcLocation.ID,
 			PlanningCenterParentID: pcLocation.ParentID,
 			Name:                   pcLocation.Name,
-			AutoFetch:              false,
 		})
 	}
 

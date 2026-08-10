@@ -46,19 +46,9 @@ func NewCommand() *cli.Command {
 						Sources: cli.NewValueSourceChain(cli.EnvVar("FETCH_CHECKOUTS_INTERVAL")),
 					},
 					&cli.DurationFlag{
-						Name:    "location-update-interval",
-						Value:   3 * time.Second,
-						Sources: cli.NewValueSourceChain(cli.EnvVar("LOCATION_UPDATE_INTERVAL")),
-					},
-					&cli.DurationFlag{
 						Name:    "event-update-interval",
 						Value:   3 * time.Second,
 						Sources: cli.NewValueSourceChain(cli.EnvVar("EVENT_UPDATE_INTERVAL")),
-					},
-					&cli.BoolFlag{
-						Name:    "fetch-by-event",
-						Usage:   "Fetch checkouts by event instead of by location",
-						Sources: cli.NewValueSourceChain(cli.EnvVar("FETCH_BY_EVENT")),
 					},
 					&cli.DurationFlag{
 						Name:  "runtime",

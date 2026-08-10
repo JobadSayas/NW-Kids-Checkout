@@ -17,7 +17,6 @@ type LocationFilter struct {
 	PlanningCenterID string
 	LocationGroupID  int64
 	EventID          int64
-	AutoFetch        *bool
 	Name             string
 }
 
@@ -38,7 +37,6 @@ type Location struct {
 	EventID                int64
 	LocationGroupID        *int64
 	Name                   string
-	AutoFetch              bool
 	LastCheckedOutTime     time.Time
 }
 
@@ -119,7 +117,6 @@ func (r *sqliteRepo) ListLocations(ctx context.Context, filter LocationFilter) (
 			"event_id",
 			"location_group_id",
 			"name",
-			"auto_fetch",
 			"last_checked_out_time",
 		).
 		From("locations").
@@ -145,10 +142,6 @@ func (r *sqliteRepo) ListLocations(ctx context.Context, filter LocationFilter) (
 		builder = builder.Where(squirrel.Eq{"event_id": filter.EventID})
 	}
 
-	if filter.AutoFetch != nil {
-		builder = builder.Where(squirrel.Eq{"auto_fetch": filter.AutoFetch})
-	}
-
 	rows, err := builder.QueryContext(ctx)
 	if err != nil {
 		return nil, err
@@ -162,7 +155,7 @@ func (r *sqliteRepo) ListLocations(ctx context.Context, filter LocationFilter) (
 		var lgIDSQL sql.NullInt64
 		var pcpIDSQL sql.NullString
 		var lastFetchedAtSQL sql.NullTime
-		err := rows.Scan(&location.ID, &location.PlanningCenterID, &pcpIDSQL, &location.EventID, &lgIDSQL, &location.Name, &location.AutoFetch, &lastFetchedAtSQL)
+		err := rows.Scan(&location.ID, &location.PlanningCenterID, &pcpIDSQL, &location.EventID, &lgIDSQL, &location.Name, &lastFetchedAtSQL)
 		if err != nil {
 			return nil, err
 		}
@@ -188,8 +181,8 @@ func (r *sqliteRepo) ListLocations(ctx context.Context, filter LocationFilter) (
 var ErrLocationExists = errors.New("location with Planning Center ID already exists")
 
 func (r *sqliteRepo) CreateLocation(ctx context.Context, location Location) (Location, error) {
-	columns := []string{"planning_center_id", "event_id", "name", "auto_fetch"}
-	values := []any{location.PlanningCenterID, location.EventID, location.Name, location.AutoFetch}
+	columns := []string{"planning_center_id", "event_id", "name"}
+	values := []any{location.PlanningCenterID, location.EventID, location.Name}
 
 	if location.PlanningCenterParentID != nil {
 		columns = append(columns, "planning_center_parent_id")
@@ -234,7 +227,6 @@ func (r *sqliteRepo) UpdateLocation(ctx context.Context, location Location) erro
 		"event_id":                  location.EventID,
 		"location_group_id":         location.LocationGroupID,
 		"name":                      location.Name,
-		"auto_fetch":                location.AutoFetch,
 	}
 
 	if !location.LastCheckedOutTime.IsZero() {

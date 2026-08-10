@@ -69,15 +69,15 @@ func TestCreateEventWithLocations_SyncExisting(t *testing.T) {
 	lastCheckedOut := time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC)
 	_, err = squirrel.Insert("locations").
 		RunWith(testDB).
-		Columns("planning_center_id", "planning_center_parent_id", "event_id", "location_group_id", "name", "auto_fetch", "last_checked_out_time").
-		Values("loc-1", "parent-old", insertedID, groupID, "Old Room A", true, lastCheckedOut).
+		Columns("planning_center_id", "planning_center_parent_id", "event_id", "location_group_id", "name", "last_checked_out_time").
+		Values("loc-1", "parent-old", insertedID, groupID, "Old Room A", lastCheckedOut).
 		ExecContext(t.Context())
 	require.NoError(t, err)
 
 	_, err = squirrel.Insert("locations").
 		RunWith(testDB).
-		Columns("planning_center_id", "event_id", "name", "auto_fetch").
-		Values("loc-2", insertedID, "Room B", false).
+		Columns("planning_center_id", "event_id", "name").
+		Values("loc-2", insertedID, "Room B").
 		ExecContext(t.Context())
 	require.NoError(t, err)
 
@@ -120,12 +120,10 @@ func TestCreateEventWithLocations_SyncExisting(t *testing.T) {
 	if assert.NotNil(t, updated.LocationGroupID) {
 		assert.Equal(t, groupID, *updated.LocationGroupID)
 	}
-	assert.True(t, updated.AutoFetch)
 	assert.Equal(t, lastCheckedOut, updated.LastCheckedOutTime)
 
 	created := locationsByPCID["loc-3"]
 	assert.Equal(t, "Room C", created.Name)
-	assert.False(t, created.AutoFetch)
 	assert.Nil(t, created.LocationGroupID)
 	assert.Zero(t, created.LastCheckedOutTime)
 
@@ -184,15 +182,15 @@ func TestCreateEventWithLocations_SyncExisting_DeleteAllLocations(t *testing.T) 
 
 	_, err = squirrel.Insert("locations").
 		RunWith(testDB).
-		Columns("planning_center_id", "event_id", "name", "auto_fetch").
-		Values("loc-1", insertedID, "Room A", true).
+		Columns("planning_center_id", "event_id", "name").
+		Values("loc-1", insertedID, "Room A").
 		ExecContext(t.Context())
 	require.NoError(t, err)
 
 	_, err = squirrel.Insert("locations").
 		RunWith(testDB).
-		Columns("planning_center_id", "event_id", "name", "auto_fetch").
-		Values("loc-2", insertedID, "Room B", false).
+		Columns("planning_center_id", "event_id", "name").
+		Values("loc-2", insertedID, "Room B").
 		ExecContext(t.Context())
 	require.NoError(t, err)
 
@@ -250,15 +248,15 @@ func TestCreateEventWithLocations_SyncExisting_DuplicateNameDeletesByPlanningCen
 
 	_, err = squirrel.Insert("locations").
 		RunWith(testDB).
-		Columns("planning_center_id", "event_id", "name", "auto_fetch").
-		Values("loc-1", insertedID, "Room A", true).
+		Columns("planning_center_id", "event_id", "name").
+		Values("loc-1", insertedID, "Room A").
 		ExecContext(t.Context())
 	require.NoError(t, err)
 
 	_, err = squirrel.Insert("locations").
 		RunWith(testDB).
-		Columns("planning_center_id", "event_id", "name", "auto_fetch").
-		Values("loc-2", insertedID, "Room A", false).
+		Columns("planning_center_id", "event_id", "name").
+		Values("loc-2", insertedID, "Room A").
 		ExecContext(t.Context())
 	require.NoError(t, err)
 

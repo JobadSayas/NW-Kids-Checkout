@@ -56,7 +56,7 @@ web-lr:
 
 .PHONY: checkout-fetcher
 checkout-fetcher: build
-	godotenv $(BIN_PATH) checkout-fetcher --fetch-by-event
+	godotenv $(BIN_PATH) checkout-fetcher
 
 .PHONY: test
 test:
