@@ -55,6 +55,11 @@ func NewCommand() *cli.Command {
 						Usage: "How long to run the fetcher for",
 						Value: 5000 * time.Second,
 					},
+					&cli.BoolFlag{
+						Name:    "service",
+						Usage:   "Run continuously as a service, ignoring --runtime",
+						Sources: cli.NewValueSourceChain(cli.EnvVar("FETCH_CHECKOUTS_SERVICE")),
+					},
 				},
 				Action: checkoutsfetcher.FetchCheckouts,
 			},

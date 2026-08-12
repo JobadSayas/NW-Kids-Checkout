@@ -164,8 +164,8 @@ func isVersionedAsset(assetURL string) bool {
 }
 
 func stripQuery(assetURL string) string {
-	if idx := strings.Index(assetURL, "?"); idx >= 0 {
-		return assetURL[:idx]
+	if before, _, ok := strings.Cut(assetURL, "?"); ok {
+		return before
 	}
 	return assetURL
 }

@@ -78,7 +78,7 @@ func Test_eventCheckoutLoop_noEvents(t *testing.T) {
 	pcClient := &planningcenter.MockClient{}
 	locationIDMap := sync.Map{}
 
-	err := eventCheckoutLoop(t.Context(), eventRepo, checkinRepo, pcClient, &locationIDMap, 3*time.Second)
+	err := eventCheckoutLoop(t.Context(), nil, eventRepo, checkinRepo, pcClient, &locationIDMap, 3*time.Second)
 	require.NoError(t, err)
 }
 
@@ -99,7 +99,7 @@ func Test_eventCheckoutLoop_noEventsNeedingUpdate(t *testing.T) {
 	pcClient := &planningcenter.MockClient{}
 	locationIDMap := sync.Map{}
 
-	err := eventCheckoutLoop(t.Context(), eventRepo, checkinRepo, pcClient, &locationIDMap, 1*time.Hour)
+	err := eventCheckoutLoop(t.Context(), nil, eventRepo, checkinRepo, pcClient, &locationIDMap, 1*time.Hour)
 	require.NoError(t, err)
 }
 
@@ -159,7 +159,7 @@ func Test_eventCheckoutLoop_updatesEventsNeedingUpdate(t *testing.T) {
 	locationIDMap := sync.Map{}
 	locationIDMap.Store("pc_loc_1", int64(1))
 
-	err := eventCheckoutLoop(t.Context(), eventRepo, checkinRepo, pcClient, &locationIDMap, 5*time.Minute)
+	err := eventCheckoutLoop(t.Context(), nil, eventRepo, checkinRepo, pcClient, &locationIDMap, 5*time.Minute)
 	require.NoError(t, err)
 
 	require.Len(t, createdCheckins, 2, "this test requires checkinRepo to return checkins")
@@ -214,11 +214,9 @@ func Test_processEventCheckouts_createsCheckinsAndUpdatesEvent(t *testing.T) {
 
 	errCh := make(chan error, 10)
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		processEventCheckouts(t.Context(), events[0], checkinRepo, eventRepo, pcClient, &locationIDMap, &sync.Map{}, errCh)
-	}()
+	})
 	wg.Wait()
 	close(errCh)
 
@@ -255,11 +253,9 @@ func Test_processEventCheckouts_handlesFetchError(t *testing.T) {
 
 	errCh := make(chan error, 10)
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		processEventCheckouts(t.Context(), event.Event{ID: 1, PlanningCenterID: "evt_1"}, checkinRepo, eventRepo, pcClient, &locationIDMap, &sync.Map{}, errCh)
-	}()
+	})
 	wg.Wait()
 	close(errCh)
 
@@ -293,7 +289,7 @@ func Test_eventCheckoutLoop_contextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
-	err := eventCheckoutLoop(ctx, eventRepo, checkinRepo, pcClient, &locationIDMap, 5*time.Minute)
+	err := eventCheckoutLoop(ctx, nil, eventRepo, checkinRepo, pcClient, &locationIDMap, 5*time.Minute)
 	assert.ErrorIs(t, err, context.Canceled)
 }
 
@@ -335,11 +331,9 @@ func Test_processEventCheckouts_unknownLocation(t *testing.T) {
 
 	errCh := make(chan error, 10)
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		processEventCheckouts(t.Context(), events[0], checkinRepo, eventRepo, pcClient, &locationIDMap, &sync.Map{}, errCh)
-	}()
+	})
 	wg.Wait()
 	close(errCh)
 
@@ -407,7 +401,7 @@ func Test_eventCheckoutLoop_concurrentEvents_sequentialProcessing(t *testing.T) 
 	locationIDMap := sync.Map{}
 	locationIDMap.Store("pc_loc_1", int64(1))
 
-	err := eventCheckoutLoop(t.Context(), eventRepo, checkinRepo, pcClient, &locationIDMap, 5*time.Minute)
+	err := eventCheckoutLoop(t.Context(), nil, eventRepo, checkinRepo, pcClient, &locationIDMap, 5*time.Minute)
 	require.NoError(t, err)
 
 	assert.Len(t, createdCheckins, 3)
@@ -451,11 +445,9 @@ func Test_processEventCheckouts_updateEventFailureDoesNotCorruptState(t *testing
 
 	errCh := make(chan error, 10)
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		processEventCheckouts(t.Context(), ev, checkinRepo, eventRepo, pcClient, &locationIDMap, &sync.Map{}, errCh)
-	}()
+	})
 	wg.Wait()
 	close(errCh)
 
@@ -527,12 +519,10 @@ func Test_processEventCheckouts_concurrentSameEvent_mutexProtection(t *testing.T
 
 	var wg sync.WaitGroup
 
-	for i := 0; i < goroutines; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range goroutines {
+		wg.Go(func() {
 			processEventCheckouts(t.Context(), events[0], checkinRepo, eventRepo, pcClient, &locationIDMap, &eventMutexes, errCh)
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -601,7 +591,7 @@ func Test_eventCheckoutLoop_contextCancellationMidLoop_breaksEarly(t *testing.T)
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- eventCheckoutLoop(ctx, eventRepo, checkinRepo, pcClient, &locationIDMap, 5*time.Minute)
+		errCh <- eventCheckoutLoop(ctx, nil, eventRepo, checkinRepo, pcClient, &locationIDMap, 5*time.Minute)
 	}()
 
 	blockedWG.Wait()
@@ -614,4 +604,140 @@ func Test_eventCheckoutLoop_contextCancellationMidLoop_breaksEarly(t *testing.T)
 	err := <-errCh
 	require.Error(t, err)
 	assert.ErrorIs(t, err, context.Canceled)
+}
+
+func Test_eventCheckoutLoop_stopChClosed_noDispatch(t *testing.T) {
+	events := []event.Event{
+		{ID: 1, PlanningCenterID: "evt_1", AutoFetch: true, LastCheckedOutTime: time.Time{}},
+	}
+
+	eventRepo := &event.MockRepo{
+		ListEventsFunc: func(ctx context.Context, filter event.EventFilter) ([]event.Event, error) {
+			return events, nil
+		},
+	}
+
+	var createdCheckins atomic.Int64
+	checkinRepo := &checkin.MockRepo{
+		CreateCheckinFunc: func(ctx context.Context, c checkin.Checkin) (checkin.Checkin, error) {
+			createdCheckins.Add(1)
+			return c, nil
+		},
+	}
+
+	pcClient := &planningcenter.MockClient{
+		GetCheckoutsForEventFunc: func(ctx context.Context, eventID string, checkedOutOnOrAfter time.Time, limit int) ([]planningcenter.Checkout, error) {
+			return []planningcenter.Checkout{
+				{ID: "pc_checkout_1", FirstName: "John", LastName: "Doe", SecurityCode: "ABCD", PlanningCenterLocationID: "pc_loc_1"},
+			}, nil
+		},
+	}
+
+	locationIDMap := sync.Map{}
+	locationIDMap.Store("pc_loc_1", int64(1))
+
+	stopCh := make(chan struct{})
+	close(stopCh)
+
+	err := eventCheckoutLoop(t.Context(), stopCh, eventRepo, checkinRepo, pcClient, &locationIDMap, 5*time.Minute)
+	require.NoError(t, err)
+	assert.Zero(t, createdCheckins.Load(), "no checkouts should be fetched when stopCh is already closed")
+}
+
+func Test_eventCheckoutLoop_stopChMidLoop_drainsInFlight(t *testing.T) {
+	events := []event.Event{
+		{ID: 1, PlanningCenterID: "evt_1", AutoFetch: true, LastCheckedOutTime: time.Time{}},
+		{ID: 2, PlanningCenterID: "evt_2", AutoFetch: true, LastCheckedOutTime: time.Time{}},
+		{ID: 3, PlanningCenterID: "evt_3", AutoFetch: true, LastCheckedOutTime: time.Time{}},
+		{ID: 4, PlanningCenterID: "evt_4", AutoFetch: true, LastCheckedOutTime: time.Time{}},
+		{ID: 5, PlanningCenterID: "evt_5", AutoFetch: true, LastCheckedOutTime: time.Time{}},
+		{ID: 6, PlanningCenterID: "evt_6", AutoFetch: true, LastCheckedOutTime: time.Time{}},
+	}
+
+	releaseCh := make(chan struct{})
+	var blockedWG sync.WaitGroup
+	blockedWG.Add(5)
+
+	eventRepo := &event.MockRepo{
+		ListEventsFunc: func(ctx context.Context, filter event.EventFilter) ([]event.Event, error) {
+			return events, nil
+		},
+		GetEventByIDFunc: func(ctx context.Context, id int64) (event.Event, error) {
+			for _, e := range events {
+				if e.ID == id {
+					return e, nil
+				}
+			}
+			return event.Event{}, nil
+		},
+		UpdateEventFunc: func(ctx context.Context, ev event.Event) error {
+			return nil
+		},
+	}
+
+	var createdCheckins atomic.Int64
+	checkinRepo := &checkin.MockRepo{
+		CreateCheckinFunc: func(ctx context.Context, c checkin.Checkin) (checkin.Checkin, error) {
+			return c, nil
+		},
+	}
+
+	pcClient := &planningcenter.MockClient{
+		GetCheckoutsForEventFunc: func(ctx context.Context, eventID string, checkedOutOnOrAfter time.Time, limit int) ([]planningcenter.Checkout, error) {
+			blockedWG.Done()
+			<-releaseCh
+			createdCheckins.Add(1)
+			return []planningcenter.Checkout{
+				{ID: "c_" + eventID, FirstName: "F", LastName: "L", SecurityCode: "CODE", PlanningCenterLocationID: "pc_loc_1"},
+			}, nil
+		},
+	}
+
+	locationIDMap := sync.Map{}
+	locationIDMap.Store("pc_loc_1", int64(1))
+
+	stopCh := make(chan struct{})
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- eventCheckoutLoop(t.Context(), stopCh, eventRepo, checkinRepo, pcClient, &locationIDMap, 5*time.Minute)
+	}()
+
+	blockedWG.Wait()
+	// All 5 semaphore slots are held; the 6th event is blocked on send.
+	close(stopCh)
+	close(releaseCh)
+
+	err := <-errCh
+	require.NoError(t, err)
+	assert.Equal(t, int64(5), createdCheckins.Load(), "only in-flight events should complete after stopCh closes")
+	assert.Equal(t, 5, eventRepo.GetEventByIDFuncCallCount, "the 6th event should not have been dispatched after stopCh closes")
+}
+
+func Test_shouldSwallowLoopError(t *testing.T) {
+	t.Run("running normally", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		assert.False(t, shouldSwallowLoopError(ctx, make(chan struct{})))
+	})
+
+	t.Run("stopCh closed during graceful drain", func(t *testing.T) {
+		stopCh := make(chan struct{})
+		close(stopCh)
+		assert.True(t, shouldSwallowLoopError(t.Context(), stopCh))
+	})
+
+	t.Run("context cancelled (runtime expired)", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		assert.True(t, shouldSwallowLoopError(ctx, make(chan struct{})))
+	})
+
+	t.Run("both stopCh closed and context cancelled", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		stopCh := make(chan struct{})
+		close(stopCh)
+		assert.True(t, shouldSwallowLoopError(ctx, stopCh))
+	})
 }

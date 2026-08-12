@@ -76,7 +76,7 @@ func TestController_PatchUpdateLocation(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("ignores auto_fetch in payload", func(t *testing.T) {
-		payload := map[string]interface{}{
+		payload := map[string]any{
 			"auto_fetch": true,
 		}
 		body, _ := json.Marshal(payload)
@@ -87,7 +87,7 @@ func TestController_PatchUpdateLocation(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, fiber.StatusOK, resp.StatusCode)
 
-		var updated map[string]interface{}
+		var updated map[string]any
 		err = json.NewDecoder(resp.Body).Decode(&updated)
 		require.NoError(t, err)
 		_, hasAutoFetch := updated["auto_fetch"]
@@ -95,7 +95,7 @@ func TestController_PatchUpdateLocation(t *testing.T) {
 	})
 
 	t.Run("not found", func(t *testing.T) {
-		payload := map[string]interface{}{}
+		payload := map[string]any{}
 		body, _ := json.Marshal(payload)
 
 		req := httptest.NewRequest("PATCH", "/v1/locations/9999", bytes.NewReader(body))
@@ -106,7 +106,7 @@ func TestController_PatchUpdateLocation(t *testing.T) {
 	})
 
 	t.Run("invalid location id", func(t *testing.T) {
-		payload := map[string]interface{}{}
+		payload := map[string]any{}
 		body, _ := json.Marshal(payload)
 
 		req := httptest.NewRequest("PATCH", "/v1/locations/not-a-number", bytes.NewReader(body))
@@ -126,7 +126,7 @@ func TestController_PatchUpdateLocation(t *testing.T) {
 
 	t.Run("set location_group_id", func(t *testing.T) {
 		groupID := int64(42)
-		payload := map[string]interface{}{
+		payload := map[string]any{
 			"location_group_id": groupID,
 		}
 		body, _ := json.Marshal(payload)
@@ -144,7 +144,7 @@ func TestController_PatchUpdateLocation(t *testing.T) {
 	})
 
 	t.Run("clear location_group_id with null", func(t *testing.T) {
-		payload := map[string]interface{}{
+		payload := map[string]any{
 			"location_group_id": nil,
 		}
 		body, _ := json.Marshal(payload)
@@ -162,7 +162,7 @@ func TestController_PatchUpdateLocation(t *testing.T) {
 	})
 
 	t.Run("invalid location_group_id", func(t *testing.T) {
-		payload := map[string]interface{}{
+		payload := map[string]any{
 			"location_group_id": "not-a-number",
 		}
 		body, _ := json.Marshal(payload)
@@ -186,7 +186,7 @@ func TestController_PostCreateLocation(t *testing.T) {
 	controller.RegisterRoutes(app)
 
 	t.Run("success", func(t *testing.T) {
-		payload := map[string]interface{}{
+		payload := map[string]any{
 			"name":               "New Test Location",
 			"planning_center_id": "pc_test_loc_123",
 		}
@@ -207,7 +207,7 @@ func TestController_PostCreateLocation(t *testing.T) {
 	})
 
 	t.Run("missing name returns bad request", func(t *testing.T) {
-		payload := map[string]interface{}{
+		payload := map[string]any{
 			"planning_center_id": "pc_test_loc_456",
 		}
 		body, _ := json.Marshal(payload)
@@ -294,7 +294,7 @@ func TestController_GetListLocations(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, fiber.StatusOK, resp.StatusCode)
 
-		var payload []map[string]interface{}
+		var payload []map[string]any
 		err = json.NewDecoder(resp.Body).Decode(&payload)
 		require.NoError(t, err)
 		require.Len(t, payload, 2)

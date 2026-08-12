@@ -7,7 +7,7 @@ import (
 type eventsResponse struct {
 	Links    eventsResponseLinks  `json:"links"`
 	Data     []eventsResponseData `json:"data"`
-	Included []interface{}        `json:"included"`
+	Included []any                `json:"included"`
 	Meta     eventsResponseMeta   `json:"meta"`
 }
 

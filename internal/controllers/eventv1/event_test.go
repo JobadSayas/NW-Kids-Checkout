@@ -507,7 +507,7 @@ func TestController_PatchUpdateEvent(t *testing.T) {
 	eventID, _ := eventRes.LastInsertId()
 
 	t.Run("success update auto_fetch", func(t *testing.T) {
-		payload := map[string]interface{}{
+		payload := map[string]any{
 			"auto_fetch": true,
 		}
 		body, _ := json.Marshal(payload)
@@ -525,7 +525,7 @@ func TestController_PatchUpdateEvent(t *testing.T) {
 	})
 
 	t.Run("update auto_fetch to false", func(t *testing.T) {
-		payload := map[string]interface{}{
+		payload := map[string]any{
 			"auto_fetch": false,
 		}
 		body, _ := json.Marshal(payload)
@@ -543,7 +543,7 @@ func TestController_PatchUpdateEvent(t *testing.T) {
 	})
 
 	t.Run("not found", func(t *testing.T) {
-		payload := map[string]interface{}{
+		payload := map[string]any{
 			"auto_fetch": true,
 		}
 		body, _ := json.Marshal(payload)
@@ -556,7 +556,7 @@ func TestController_PatchUpdateEvent(t *testing.T) {
 	})
 
 	t.Run("invalid event id", func(t *testing.T) {
-		payload := map[string]interface{}{
+		payload := map[string]any{
 			"auto_fetch": true,
 		}
 		body, _ := json.Marshal(payload)
@@ -604,7 +604,7 @@ func TestController_PatchUpdateEvent_withLocationGroup(t *testing.T) {
 	eventID, _ := eventRes.LastInsertId()
 
 	t.Run("set location_group_id", func(t *testing.T) {
-		payload := map[string]interface{}{
+		payload := map[string]any{
 			"location_group_id": groupID,
 		}
 		body, _ := json.Marshal(payload)
@@ -623,7 +623,7 @@ func TestController_PatchUpdateEvent_withLocationGroup(t *testing.T) {
 	})
 
 	t.Run("clear location_group_id with null", func(t *testing.T) {
-		payload := map[string]interface{}{
+		payload := map[string]any{
 			"location_group_id": nil,
 		}
 		body, _ := json.Marshal(payload)
@@ -641,7 +641,7 @@ func TestController_PatchUpdateEvent_withLocationGroup(t *testing.T) {
 	})
 
 	t.Run("invalid location_group_id", func(t *testing.T) {
-		payload := map[string]interface{}{
+		payload := map[string]any{
 			"location_group_id": "not-a-number",
 		}
 		body, _ := json.Marshal(payload)

@@ -26,6 +26,12 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
+// shutdownGracePeriod is how long the fetcher waits for in-flight work to drain
+// after a shutdown signal before force-exiting. It is set slightly above the
+// Planning Center client's HTTP timeout so a single in-flight request can
+// finish before the force-exit fires.
+const shutdownGracePeriod = 11 * time.Second
+
 func FetchCheckouts(ctx context.Context, cmd *cli.Command) error {
 	return FetchCheckoutsV2(ctx, cmd)
 }
@@ -54,29 +60,57 @@ func FetchCheckoutsV2(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	runtime := cmd.Duration("runtime")
-	if runtime <= 0 {
-		return fmt.Errorf("runtime must be greater than 0")
-	}
 
-	ctx, cancel := context.WithTimeout(ctx, runtime)
+	var cancel context.CancelFunc
+	serviceMode := cmd.Bool("service")
+	if serviceMode {
+		ctx, cancel = context.WithCancel(ctx)
+	} else {
+		if runtime <= 0 {
+			return fmt.Errorf("runtime must be greater than 0")
+		}
+		ctx, cancel = context.WithTimeout(ctx, runtime)
+	}
 	defer cancel()
 
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	logCtx := logger.WithLogger(ctx, slog.With(slog.String("worker", "checkout-fetcher-v2")))
+
+	if serviceMode {
+		logger.FromContext(logCtx).WarnContext(logCtx, "running as service: --runtime is ignored")
+	}
+
+	stopCh := make(chan struct{})
+	forceExitCh := make(chan struct{})
+	var stopOnce sync.Once
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	go func() {
-		<-c
-		cancel()
+		<-sigCh
+		stopOnce.Do(func() {
+			logger.FromContext(logCtx).InfoContext(logCtx, "received shutdown signal, draining; no new work will be scheduled")
+			close(stopCh)
+			time.AfterFunc(shutdownGracePeriod, func() {
+				close(forceExitCh)
+			})
+		})
+		<-sigCh
+		logger.FromContext(logCtx).ErrorContext(logCtx, "received second shutdown signal, exiting immediately")
+		os.Exit(1)
 	}()
 
 	pcClient, checkinRepo, locationsRepo, eventRepo := getClients(database)
 
-	logCtx := logger.WithLogger(ctx, slog.With(slog.String("worker", "checkout-fetcher-v2")))
-
-	logger.FromContext(logCtx).InfoContext(logCtx, "starting checkout fetcher (by event)",
+	logAttrs := []any{
+		slog.Bool("service", serviceMode),
 		slog.Duration("interval", interval),
 		slog.Duration("event_update_interval", eventUpdateInterval),
-		slog.Duration("runtime", runtime),
-		slog.String("db_file", dbFile))
+		slog.String("db_file", dbFile),
+	}
+	if !serviceMode {
+		logAttrs = append(logAttrs, slog.Duration("runtime", runtime))
+	}
+	logger.FromContext(logCtx).InfoContext(logCtx, "starting checkout fetcher (by event)", logAttrs...)
 
 	locationMap := sync.Map{}
 
@@ -95,6 +129,8 @@ func FetchCheckoutsV2(ctx context.Context, cmd *cli.Command) error {
 		for {
 			select {
 			case <-ctx.Done():
+				return
+			case <-stopCh:
 				return
 			case <-ticker.C:
 			}
@@ -121,21 +157,39 @@ func FetchCheckoutsV2(ctx context.Context, cmd *cli.Command) error {
 	}()
 
 	for {
+		select {
+		case <-forceExitCh:
+			logger.FromContext(logCtx).ErrorContext(logCtx, "graceful shutdown did not complete within the grace period, forcing exit", slog.Duration("grace_period", shutdownGracePeriod))
+			return fmt.Errorf("graceful shutdown did not complete within %s", shutdownGracePeriod)
+		default:
+		}
+
+		select {
+		case <-stopCh:
+			return nil
+		default:
+		}
+
 		if ctx.Err() != nil {
 			break
 		}
 
 		logger.FromContext(logCtx).InfoContext(logCtx, "checking for events that need updating")
 
-		err = eventCheckoutLoop(ctx, eventRepo, checkinRepo, pcClient, &locationMap, eventUpdateInterval)
+		err = eventCheckoutLoop(ctx, stopCh, eventRepo, checkinRepo, pcClient, &locationMap, eventUpdateInterval)
 		if err != nil {
-			if ctx.Err() != nil {
-				break
+			if shouldSwallowLoopError(ctx, stopCh) {
+				continue
 			}
 			return fmt.Errorf("failed to eventCheckoutLoop: %w", err)
 		}
 
 		select {
+		case <-forceExitCh:
+			logger.FromContext(logCtx).ErrorContext(logCtx, "graceful shutdown did not complete within the grace period, forcing exit", slog.Duration("grace_period", shutdownGracePeriod))
+			return fmt.Errorf("graceful shutdown did not complete within %s", shutdownGracePeriod)
+		case <-stopCh:
+			return nil
 		case <-ctx.Done():
 			return nil
 		case <-time.After(interval):
@@ -145,7 +199,26 @@ func FetchCheckoutsV2(ctx context.Context, cmd *cli.Command) error {
 	return nil
 }
 
-func eventCheckoutLoop(ctx context.Context, eventRepo event.Repo, checkinRepo checkin.Repo, pcClient planningcenter.Client, locationIDMap *sync.Map, eventUpdateInterval time.Duration) error {
+// shouldSwallowLoopError reports whether a per-loop error should be treated as
+// non-fatal because the fetcher is shutting down or its runtime has expired.
+// During a graceful drain the context is intentionally not cancelled so
+// in-flight work can complete, so stopCh must be checked in addition to ctx.
+func shouldSwallowLoopError(ctx context.Context, stopCh <-chan struct{}) bool {
+	select {
+	case <-stopCh:
+		return true
+	default:
+	}
+	return ctx.Err() != nil
+}
+
+func eventCheckoutLoop(ctx context.Context, stopCh <-chan struct{}, eventRepo event.Repo, checkinRepo checkin.Repo, pcClient planningcenter.Client, locationIDMap *sync.Map, eventUpdateInterval time.Duration) error {
+	select {
+	case <-stopCh:
+		return nil
+	default:
+	}
+
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -189,6 +262,8 @@ loop:
 			errMu.Lock()
 			errs = append(errs, ctx.Err())
 			errMu.Unlock()
+			break loop
+		case <-stopCh:
 			break loop
 		case sem <- struct{}{}:
 			wg.Add(1)
