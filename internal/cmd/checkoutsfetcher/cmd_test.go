@@ -10,10 +10,35 @@ import (
 	"kids-checkin/internal/client/planningcenter"
 	"kids-checkin/internal/repo/checkin"
 	"kids-checkin/internal/repo/event"
+	"kids-checkin/internal/repo/eventcheckwindow"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// noCheckWindows returns a window repo with no configured windows, so all
+// auto-fetch events are treated as active unless a test configures windows.
+func noCheckWindows() *eventcheckwindow.MockRepo {
+	return &eventcheckwindow.MockRepo{
+		ListCheckWindowsFunc: func(ctx context.Context, filter eventcheckwindow.Filter) ([]eventcheckwindow.EventCheckWindow, error) {
+			return nil, nil
+		},
+	}
+}
+
+// testService builds a Service with the given collaborators so tests can call
+// its methods directly.
+func testService(checkWindowRepo eventcheckwindow.Repo, eventRepo event.Repo, checkinRepo checkin.Repo, pcClient planningcenter.Client, locationIDMap *sync.Map, eventUpdateInterval time.Duration, useCheckWindows bool) *Service {
+	return &Service{
+		pcClient:            pcClient,
+		eventRepo:           eventRepo,
+		checkinRepo:         checkinRepo,
+		checkWindowRepo:     checkWindowRepo,
+		locationIDMap:       locationIDMap,
+		eventUpdateInterval: eventUpdateInterval,
+		useCheckWindows:     useCheckWindows,
+	}
+}
 
 type concurrentEventRepo struct {
 	events      []event.Event
@@ -78,7 +103,7 @@ func Test_eventCheckoutLoop_noEvents(t *testing.T) {
 	pcClient := &planningcenter.MockClient{}
 	locationIDMap := sync.Map{}
 
-	err := eventCheckoutLoop(t.Context(), nil, eventRepo, checkinRepo, pcClient, &locationIDMap, 3*time.Second)
+	err := testService(noCheckWindows(), eventRepo, checkinRepo, pcClient, &locationIDMap, 3*time.Second, false).eventCheckoutLoop(t.Context(), nil)
 	require.NoError(t, err)
 }
 
@@ -99,7 +124,7 @@ func Test_eventCheckoutLoop_noEventsNeedingUpdate(t *testing.T) {
 	pcClient := &planningcenter.MockClient{}
 	locationIDMap := sync.Map{}
 
-	err := eventCheckoutLoop(t.Context(), nil, eventRepo, checkinRepo, pcClient, &locationIDMap, 1*time.Hour)
+	err := testService(noCheckWindows(), eventRepo, checkinRepo, pcClient, &locationIDMap, 1*time.Hour, false).eventCheckoutLoop(t.Context(), nil)
 	require.NoError(t, err)
 }
 
@@ -159,7 +184,7 @@ func Test_eventCheckoutLoop_updatesEventsNeedingUpdate(t *testing.T) {
 	locationIDMap := sync.Map{}
 	locationIDMap.Store("pc_loc_1", int64(1))
 
-	err := eventCheckoutLoop(t.Context(), nil, eventRepo, checkinRepo, pcClient, &locationIDMap, 5*time.Minute)
+	err := testService(noCheckWindows(), eventRepo, checkinRepo, pcClient, &locationIDMap, 5*time.Minute, false).eventCheckoutLoop(t.Context(), nil)
 	require.NoError(t, err)
 
 	require.Len(t, createdCheckins, 2, "this test requires checkinRepo to return checkins")
@@ -215,7 +240,8 @@ func Test_processEventCheckouts_createsCheckinsAndUpdatesEvent(t *testing.T) {
 	errCh := make(chan error, 10)
 	var wg sync.WaitGroup
 	wg.Go(func() {
-		processEventCheckouts(t.Context(), events[0], checkinRepo, eventRepo, pcClient, &locationIDMap, &sync.Map{}, errCh)
+		svc := testService(noCheckWindows(), eventRepo, checkinRepo, pcClient, &locationIDMap, 0, false)
+		svc.processEventCheckouts(t.Context(), events[0], errCh)
 	})
 	wg.Wait()
 	close(errCh)
@@ -254,7 +280,8 @@ func Test_processEventCheckouts_handlesFetchError(t *testing.T) {
 	errCh := make(chan error, 10)
 	var wg sync.WaitGroup
 	wg.Go(func() {
-		processEventCheckouts(t.Context(), event.Event{ID: 1, PlanningCenterID: "evt_1"}, checkinRepo, eventRepo, pcClient, &locationIDMap, &sync.Map{}, errCh)
+		svc := testService(noCheckWindows(), eventRepo, checkinRepo, pcClient, &locationIDMap, 0, false)
+		svc.processEventCheckouts(t.Context(), event.Event{ID: 1, PlanningCenterID: "evt_1"}, errCh)
 	})
 	wg.Wait()
 	close(errCh)
@@ -289,7 +316,7 @@ func Test_eventCheckoutLoop_contextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
-	err := eventCheckoutLoop(ctx, nil, eventRepo, checkinRepo, pcClient, &locationIDMap, 5*time.Minute)
+	err := testService(noCheckWindows(), eventRepo, checkinRepo, pcClient, &locationIDMap, 5*time.Minute, false).eventCheckoutLoop(ctx, nil)
 	assert.ErrorIs(t, err, context.Canceled)
 }
 
@@ -332,7 +359,8 @@ func Test_processEventCheckouts_unknownLocation(t *testing.T) {
 	errCh := make(chan error, 10)
 	var wg sync.WaitGroup
 	wg.Go(func() {
-		processEventCheckouts(t.Context(), events[0], checkinRepo, eventRepo, pcClient, &locationIDMap, &sync.Map{}, errCh)
+		svc := testService(noCheckWindows(), eventRepo, checkinRepo, pcClient, &locationIDMap, 0, false)
+		svc.processEventCheckouts(t.Context(), events[0], errCh)
 	})
 	wg.Wait()
 	close(errCh)
@@ -401,7 +429,7 @@ func Test_eventCheckoutLoop_concurrentEvents_sequentialProcessing(t *testing.T) 
 	locationIDMap := sync.Map{}
 	locationIDMap.Store("pc_loc_1", int64(1))
 
-	err := eventCheckoutLoop(t.Context(), nil, eventRepo, checkinRepo, pcClient, &locationIDMap, 5*time.Minute)
+	err := testService(noCheckWindows(), eventRepo, checkinRepo, pcClient, &locationIDMap, 5*time.Minute, false).eventCheckoutLoop(t.Context(), nil)
 	require.NoError(t, err)
 
 	assert.Len(t, createdCheckins, 3)
@@ -446,7 +474,8 @@ func Test_processEventCheckouts_updateEventFailureDoesNotCorruptState(t *testing
 	errCh := make(chan error, 10)
 	var wg sync.WaitGroup
 	wg.Go(func() {
-		processEventCheckouts(t.Context(), ev, checkinRepo, eventRepo, pcClient, &locationIDMap, &sync.Map{}, errCh)
+		svc := testService(noCheckWindows(), eventRepo, checkinRepo, pcClient, &locationIDMap, 0, false)
+		svc.processEventCheckouts(t.Context(), ev, errCh)
 	})
 	wg.Wait()
 	close(errCh)
@@ -515,13 +544,13 @@ func Test_processEventCheckouts_concurrentSameEvent_mutexProtection(t *testing.T
 
 	const goroutines = 10
 	errCh := make(chan error, goroutines)
-	eventMutexes := sync.Map{}
+	svc := testService(noCheckWindows(), eventRepo, checkinRepo, pcClient, &locationIDMap, 0, false)
 
 	var wg sync.WaitGroup
 
 	for range goroutines {
 		wg.Go(func() {
-			processEventCheckouts(t.Context(), events[0], checkinRepo, eventRepo, pcClient, &locationIDMap, &eventMutexes, errCh)
+			svc.processEventCheckouts(t.Context(), events[0], errCh)
 		})
 	}
 
@@ -591,7 +620,7 @@ func Test_eventCheckoutLoop_contextCancellationMidLoop_breaksEarly(t *testing.T)
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- eventCheckoutLoop(ctx, nil, eventRepo, checkinRepo, pcClient, &locationIDMap, 5*time.Minute)
+		errCh <- testService(noCheckWindows(), eventRepo, checkinRepo, pcClient, &locationIDMap, 5*time.Minute, false).eventCheckoutLoop(ctx, nil)
 	}()
 
 	blockedWG.Wait()
@@ -639,7 +668,7 @@ func Test_eventCheckoutLoop_stopChClosed_noDispatch(t *testing.T) {
 	stopCh := make(chan struct{})
 	close(stopCh)
 
-	err := eventCheckoutLoop(t.Context(), stopCh, eventRepo, checkinRepo, pcClient, &locationIDMap, 5*time.Minute)
+	err := testService(noCheckWindows(), eventRepo, checkinRepo, pcClient, &locationIDMap, 5*time.Minute, false).eventCheckoutLoop(t.Context(), stopCh)
 	require.NoError(t, err)
 	assert.Zero(t, createdCheckins.Load(), "no checkouts should be fetched when stopCh is already closed")
 }
@@ -700,7 +729,7 @@ func Test_eventCheckoutLoop_stopChMidLoop_drainsInFlight(t *testing.T) {
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- eventCheckoutLoop(t.Context(), stopCh, eventRepo, checkinRepo, pcClient, &locationIDMap, 5*time.Minute)
+		errCh <- testService(noCheckWindows(), eventRepo, checkinRepo, pcClient, &locationIDMap, 5*time.Minute, false).eventCheckoutLoop(t.Context(), stopCh)
 	}()
 
 	blockedWG.Wait()
@@ -740,4 +769,335 @@ func Test_shouldSwallowLoopError(t *testing.T) {
 		close(stopCh)
 		assert.True(t, shouldSwallowLoopError(ctx, stopCh))
 	})
+}
+
+func TestMinutesSinceWeekStartUTC(t *testing.T) {
+	tests := []struct {
+		name     string
+		mockTime time.Time
+		want     int
+	}{
+		{
+			name:     "monday midnight",
+			mockTime: time.Date(2026, 3, 23, 0, 0, 0, 0, time.UTC),
+			want:     0,
+		},
+		{
+			name:     "monday 09:30",
+			mockTime: time.Date(2026, 3, 23, 9, 30, 0, 0, time.UTC),
+			want:     570,
+		},
+		{
+			name:     "wednesday 12:00",
+			mockTime: time.Date(2026, 3, 25, 12, 0, 0, 0, time.UTC),
+			want:     3600,
+		},
+		{
+			name:     "saturday midday",
+			mockTime: time.Date(2026, 3, 28, 12, 0, 0, 0, time.UTC),
+			want:     7920,
+		},
+		{
+			name:     "sunday 23:59",
+			mockTime: time.Date(2026, 3, 29, 23, 59, 0, 0, time.UTC),
+			want:     10079,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			original := nowFunc
+			nowFunc = func() time.Time { return tt.mockTime }
+			defer func() { nowFunc = original }()
+
+			got := minutesSinceWeekStartUTC()
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestLocalToUTCWeekMinutes(t *testing.T) {
+	original := nowFunc
+	nowFunc = func() time.Time { return time.Date(2026, 3, 29, 22, 0, 0, 0, time.UTC) }
+	defer func() { nowFunc = original }()
+
+	got, err := localToUTCWeekMinutes(1, 9, 0, "America/New_York")
+	require.NoError(t, err)
+	assert.Equal(t, 780, got, "Monday 09:00 NY should be 780 minutes (13:00 UTC)")
+}
+
+func TestLocalToUTCWeekMinutes_SameDay(t *testing.T) {
+	original := nowFunc
+	nowFunc = func() time.Time { return time.Date(2026, 3, 25, 12, 0, 0, 0, time.UTC) }
+	defer func() { nowFunc = original }()
+
+	got, err := localToUTCWeekMinutes(3, 14, 30, "America/Los_Angeles")
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, got, 0)
+	assert.Less(t, got, minutesPerWeek)
+}
+
+func TestLocalToUTCWeekMinutes_InvalidTimezone(t *testing.T) {
+	original := nowFunc
+	defer func() { nowFunc = original }()
+
+	_, err := localToUTCWeekMinutes(1, 9, 0, "Invalid/Timezone")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid timezone")
+}
+
+func TestParseTime(t *testing.T) {
+	tests := []struct {
+		name      string
+		timeStr   string
+		wantHour  int
+		wantMin   int
+		wantError bool
+	}{
+		{"valid 24hr", "14:30", 14, 30, false},
+		{"valid with leading zero", "09:05", 9, 5, false},
+		{"valid midnight", "00:00", 0, 0, false},
+		{"valid end of day", "23:59", 23, 59, false},
+		{"invalid format", "14-30", 0, 0, true},
+		{"invalid hour", "25:00", 0, 0, true},
+		{"invalid minute", "12:60", 0, 0, true},
+		{"empty", "", 0, 0, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			hour, minute, err := parseTime(tt.timeStr)
+			if tt.wantError {
+				assert.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantHour, hour)
+			assert.Equal(t, tt.wantMin, minute)
+		})
+	}
+}
+
+func TestMergeWindows(t *testing.T) {
+	tests := []struct {
+		name         string
+		checkWindows []eventcheckwindow.EventCheckWindow
+		wantLen      int
+		wantErr      bool
+	}{
+		{
+			name: "single window same day",
+			checkWindows: []eventcheckwindow.EventCheckWindow{
+				{StartDayOfWeek: 1, StartTime: "09:00", EndDayOfWeek: 1, EndTime: "12:00", Timezone: "America/New_York"},
+			},
+			wantLen: 1,
+		},
+		{
+			name: "multiple non-overlapping",
+			checkWindows: []eventcheckwindow.EventCheckWindow{
+				{StartDayOfWeek: 1, StartTime: "09:00", EndDayOfWeek: 1, EndTime: "11:00", Timezone: "America/New_York"},
+				{StartDayOfWeek: 1, StartTime: "14:00", EndDayOfWeek: 1, EndTime: "16:00", Timezone: "America/New_York"},
+			},
+			wantLen: 2,
+		},
+		{
+			name: "overlapping windows merge",
+			checkWindows: []eventcheckwindow.EventCheckWindow{
+				{StartDayOfWeek: 1, StartTime: "09:00", EndDayOfWeek: 1, EndTime: "12:00", Timezone: "America/New_York"},
+				{StartDayOfWeek: 1, StartTime: "11:00", EndDayOfWeek: 1, EndTime: "14:00", Timezone: "America/New_York"},
+			},
+			wantLen: 1,
+		},
+		{
+			name: "crosses week boundary",
+			checkWindows: []eventcheckwindow.EventCheckWindow{
+				{StartDayOfWeek: 5, StartTime: "22:00", EndDayOfWeek: 6, EndTime: "02:00", Timezone: "America/New_York"},
+			},
+			wantLen: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := mergeWindows(tt.checkWindows)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Len(t, got, tt.wantLen)
+		})
+	}
+}
+
+func Test_eventCheckoutLoop_windowFiltersEvents(t *testing.T) {
+	original := nowFunc
+	nowFunc = func() time.Time { return time.Date(2026, 3, 25, 12, 0, 0, 0, time.UTC) }
+	defer func() { nowFunc = original }()
+
+	events := []event.Event{
+		{ID: 1, PlanningCenterID: "evt_active", AutoFetch: true, LastCheckedOutTime: time.Time{}},
+		{ID: 2, PlanningCenterID: "evt_inactive", AutoFetch: true, LastCheckedOutTime: time.Time{}},
+	}
+
+	eventRepo := &event.MockRepo{
+		ListEventsFunc: func(ctx context.Context, filter event.EventFilter) ([]event.Event, error) {
+			return events, nil
+		},
+		GetEventByIDFunc: func(ctx context.Context, id int64) (event.Event, error) {
+			for _, e := range events {
+				if e.ID == id {
+					return e, nil
+				}
+			}
+			return event.Event{}, nil
+		},
+		UpdateEventFunc: func(ctx context.Context, ev event.Event) error {
+			return nil
+		},
+	}
+
+	var createdCheckins []checkin.Checkin
+	checkinRepo := &checkin.MockRepo{
+		CreateCheckinFunc: func(ctx context.Context, c checkin.Checkin) (checkin.Checkin, error) {
+			c.ID = int64(len(createdCheckins) + 1)
+			createdCheckins = append(createdCheckins, c)
+			return c, nil
+		},
+	}
+
+	pcClient := &planningcenter.MockClient{
+		GetCheckoutsForEventFunc: func(ctx context.Context, eventID string, checkedOutOnOrAfter time.Time, limit int) ([]planningcenter.Checkout, error) {
+			return []planningcenter.Checkout{
+				{ID: "pc_" + eventID, FirstName: "John", LastName: "Doe", SecurityCode: "ABCD", PlanningCenterLocationID: "pc_loc_1"},
+			}, nil
+		},
+	}
+
+	locationIDMap := sync.Map{}
+	locationIDMap.Store("pc_loc_1", int64(1))
+
+	checkWindowRepo := &eventcheckwindow.MockRepo{
+		ListCheckWindowsFunc: func(ctx context.Context, filter eventcheckwindow.Filter) ([]eventcheckwindow.EventCheckWindow, error) {
+			return []eventcheckwindow.EventCheckWindow{
+				{EventID: 1, StartDayOfWeek: 3, StartTime: "10:00", EndDayOfWeek: 3, EndTime: "14:00", Timezone: "UTC"},
+				{EventID: 2, StartDayOfWeek: 3, StartTime: "08:00", EndDayOfWeek: 3, EndTime: "10:00", Timezone: "UTC"},
+			}, nil
+		},
+	}
+
+	err := testService(checkWindowRepo, eventRepo, checkinRepo, pcClient, &locationIDMap, 5*time.Minute, true).eventCheckoutLoop(t.Context(), nil)
+	require.NoError(t, err)
+
+	require.Len(t, createdCheckins, 1, "only the event inside its check window should be fetched")
+	assert.Equal(t, "pc_evt_active", createdCheckins[0].PlanningCenterID)
+}
+
+func Test_eventCheckoutLoop_noWindows_alwaysActive(t *testing.T) {
+	events := []event.Event{
+		{ID: 1, PlanningCenterID: "evt_1", AutoFetch: true, LastCheckedOutTime: time.Time{}},
+	}
+
+	eventRepo := &event.MockRepo{
+		ListEventsFunc: func(ctx context.Context, filter event.EventFilter) ([]event.Event, error) {
+			return events, nil
+		},
+		GetEventByIDFunc: func(ctx context.Context, id int64) (event.Event, error) {
+			return events[0], nil
+		},
+		UpdateEventFunc: func(ctx context.Context, ev event.Event) error {
+			return nil
+		},
+	}
+
+	var createdCheckins []checkin.Checkin
+	checkinRepo := &checkin.MockRepo{
+		CreateCheckinFunc: func(ctx context.Context, c checkin.Checkin) (checkin.Checkin, error) {
+			c.ID = int64(len(createdCheckins) + 1)
+			createdCheckins = append(createdCheckins, c)
+			return c, nil
+		},
+	}
+
+	pcClient := &planningcenter.MockClient{
+		GetCheckoutsForEventFunc: func(ctx context.Context, eventID string, checkedOutOnOrAfter time.Time, limit int) ([]planningcenter.Checkout, error) {
+			return []planningcenter.Checkout{
+				{ID: "pc_checkout_1", FirstName: "John", LastName: "Doe", SecurityCode: "ABCD", PlanningCenterLocationID: "pc_loc_1"},
+			}, nil
+		},
+	}
+
+	locationIDMap := sync.Map{}
+	locationIDMap.Store("pc_loc_1", int64(1))
+
+	err := testService(noCheckWindows(), eventRepo, checkinRepo, pcClient, &locationIDMap, 5*time.Minute, true).eventCheckoutLoop(t.Context(), nil)
+	require.NoError(t, err)
+	assert.Len(t, createdCheckins, 1, "events without configured windows should still be fetched")
+}
+
+func Test_eventCheckoutLoop_windowRepoError(t *testing.T) {
+	eventRepo := &event.MockRepo{
+		ListEventsFunc: func(ctx context.Context, filter event.EventFilter) ([]event.Event, error) {
+			return []event.Event{{ID: 1, PlanningCenterID: "evt_1", AutoFetch: true}}, nil
+		},
+	}
+
+	checkWindowRepo := &eventcheckwindow.MockRepo{
+		ListCheckWindowsFunc: func(ctx context.Context, filter eventcheckwindow.Filter) ([]eventcheckwindow.EventCheckWindow, error) {
+			return nil, assert.AnError
+		},
+	}
+
+	err := testService(checkWindowRepo, eventRepo, &checkin.MockRepo{}, &planningcenter.MockClient{}, &sync.Map{}, 5*time.Minute, true).eventCheckoutLoop(t.Context(), nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to list check windows")
+}
+
+func Test_eventCheckoutLoop_windowsDisabled_ignoresWindows(t *testing.T) {
+	events := []event.Event{
+		{ID: 1, PlanningCenterID: "evt_1", AutoFetch: true, LastCheckedOutTime: time.Time{}},
+	}
+
+	eventRepo := &event.MockRepo{
+		ListEventsFunc: func(ctx context.Context, filter event.EventFilter) ([]event.Event, error) {
+			return events, nil
+		},
+		GetEventByIDFunc: func(ctx context.Context, id int64) (event.Event, error) {
+			return events[0], nil
+		},
+		UpdateEventFunc: func(ctx context.Context, ev event.Event) error {
+			return nil
+		},
+	}
+
+	var createdCheckins []checkin.Checkin
+	checkinRepo := &checkin.MockRepo{
+		CreateCheckinFunc: func(ctx context.Context, c checkin.Checkin) (checkin.Checkin, error) {
+			c.ID = int64(len(createdCheckins) + 1)
+			createdCheckins = append(createdCheckins, c)
+			return c, nil
+		},
+	}
+
+	pcClient := &planningcenter.MockClient{
+		GetCheckoutsForEventFunc: func(ctx context.Context, eventID string, checkedOutOnOrAfter time.Time, limit int) ([]planningcenter.Checkout, error) {
+			return []planningcenter.Checkout{
+				{ID: "pc_checkout_1", FirstName: "John", LastName: "Doe", SecurityCode: "ABCD", PlanningCenterLocationID: "pc_loc_1"},
+			}, nil
+		},
+	}
+
+	locationIDMap := sync.Map{}
+	locationIDMap.Store("pc_loc_1", int64(1))
+
+	checkWindowRepo := &eventcheckwindow.MockRepo{
+		ListCheckWindowsFunc: func(ctx context.Context, filter eventcheckwindow.Filter) ([]eventcheckwindow.EventCheckWindow, error) {
+			return nil, assert.AnError
+		},
+	}
+
+	err := testService(checkWindowRepo, eventRepo, checkinRepo, pcClient, &locationIDMap, 5*time.Minute, false).eventCheckoutLoop(t.Context(), nil)
+	require.NoError(t, err)
+	assert.Len(t, createdCheckins, 1, "events should be fetched regardless of windows when the flag is off")
+	assert.Zero(t, checkWindowRepo.ListCheckWindowsFuncCallCount, "check windows should not be queried when the flag is off")
 }

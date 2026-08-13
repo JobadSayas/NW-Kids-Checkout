@@ -60,6 +60,11 @@ func NewCommand() *cli.Command {
 						Usage:   "Run continuously as a service, ignoring --runtime",
 						Sources: cli.NewValueSourceChain(cli.EnvVar("FETCH_CHECKOUTS_SERVICE")),
 					},
+					&cli.BoolFlag{
+						Name:    "use-check-windows",
+						Usage:   "Only fetch checkouts for events whose current time falls within a configured check window",
+						Sources: cli.NewValueSourceChain(cli.EnvVar("FETCH_CHECKOUTS_USE_CHECK_WINDOWS")),
+					},
 				},
 				Action: checkoutsfetcher.FetchCheckouts,
 			},
