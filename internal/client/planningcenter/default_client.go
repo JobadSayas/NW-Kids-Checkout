@@ -214,10 +214,10 @@ func (client *defaultClient) GetCheckoutsForEvent(ctx context.Context, eventID s
 			resp, err := client.httpClient.Do(req)
 			if err != nil {
 				if errors.Is(err, context.DeadlineExceeded) {
-					return &TimeoutError{err}
+					return &TimeoutError{Err: err}
 				}
 				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-					return &TimeoutError{err}
+					return &TimeoutError{Err: err}
 				}
 				return err
 			}

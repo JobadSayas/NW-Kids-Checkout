@@ -21,9 +21,9 @@ func (e *ClientError) Error() string {
 }
 
 type TimeoutError struct {
-	err error
+	Err error
 }
 
 func (e *TimeoutError) Error() string {
-	return "timeout: " + e.err.Error()
+	return "timeout: " + e.Err.Error()
 }

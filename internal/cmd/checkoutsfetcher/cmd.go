@@ -35,6 +35,26 @@ import (
 // finish before the force-exit fires.
 const shutdownGracePeriod = 11 * time.Second
 
+// errEventTimeout marks a per-event Planning Center fetch that timed out. It
+// is treated as non-fatal for the loop (like success) but is distinguishable
+// so the timeout can be observed and reported rather than silently swallowed.
+type errEventTimeout struct {
+	eventID string
+	err     error
+}
+
+func (e errEventTimeout) Error() string {
+	return fmt.Sprintf("timeout fetching checkouts for event %s: %v", e.eventID, e.err)
+}
+
+func (e errEventTimeout) Unwrap() error { return e.err }
+
+// isEventTimeout reports whether err represents a non-fatal per-event timeout.
+func isEventTimeout(err error) bool {
+	var te errEventTimeout
+	return errors.As(err, &te)
+}
+
 // Service coordinates the by-event checkout fetcher. It owns the Planning
 // Center client, the repos it reads and writes, and the in-memory location
 // map (PlanningCenterID -> local ID) used to resolve checkout locations.
@@ -322,11 +342,11 @@ func (s *Service) eventCheckoutLoop(ctx context.Context, stopCh <-chan struct{})
 	logger.FromContext(ctx).InfoContext(ctx, "processing events that need updating", slog.Int("total_events", len(events)), slog.Int("events_to_update", len(eventsToUpdate)))
 
 	var (
-		wg    sync.WaitGroup
-		errs  []error
-		errMu sync.Mutex
-		sem   = make(chan struct{}, 5)
-		errCh = make(chan error, len(eventsToUpdate))
+		wg       sync.WaitGroup
+		errs     []error
+		timeouts int
+		errMu    sync.Mutex
+		sem      = make(chan struct{}, 5)
 	)
 
 loop:
@@ -344,18 +364,23 @@ loop:
 			go func(ev event.Event) {
 				defer wg.Done()
 				defer func() { <-sem }()
-				s.processEventCheckouts(ctx, ev, errCh)
+				if err := s.processEventCheckouts(ctx, ev); err != nil {
+					errMu.Lock()
+					if isEventTimeout(err) {
+						timeouts++
+					} else {
+						errs = append(errs, err)
+					}
+					errMu.Unlock()
+				}
 			}(ev)
 		}
 	}
 
 	wg.Wait()
-	close(errCh)
 
-	for err := range errCh {
-		errMu.Lock()
-		errs = append(errs, err)
-		errMu.Unlock()
+	if timeouts > 0 {
+		logger.FromContext(ctx).WarnContext(ctx, "checkout fetch timed out for some events; will retry next cycle", slog.Int("timeout_count", timeouts))
 	}
 
 	if len(errs) > 0 {
@@ -374,15 +399,14 @@ func (s *Service) getEventMutex(eventID int64) *sync.Mutex {
 	return getEventMutex(&s.eventMutexes, eventID)
 }
 
-func (s *Service) processEventCheckouts(ctx context.Context, ev event.Event, errCh chan<- error) {
+func (s *Service) processEventCheckouts(ctx context.Context, ev event.Event) error {
 	mu := s.getEventMutex(ev.ID)
 	mu.Lock()
 	defer mu.Unlock()
 
 	currentEvent, err := s.eventRepo.GetEventByID(ctx, ev.ID)
 	if err != nil {
-		errCh <- fmt.Errorf("failed to get event %d: %w", ev.ID, err)
-		return
+		return fmt.Errorf("failed to get event %d: %w", ev.ID, err)
 	}
 
 	timeToUse := currentEvent.LastCheckedOutTime
@@ -396,10 +420,9 @@ func (s *Service) processEventCheckouts(ctx context.Context, ev event.Event, err
 		var timeoutErr *planningcenter.TimeoutError
 		if errors.As(err, &timeoutErr) {
 			logger.FromContext(ctx).WarnContext(ctx, "timeout fetching checkouts for event", slog.String("event_id", currentEvent.PlanningCenterID), slog.String("error", err.Error()), slog.Any("err", err))
-			return
+			return errEventTimeout{eventID: currentEvent.PlanningCenterID, err: err}
 		}
-		errCh <- fmt.Errorf("failed to fetch checkouts for event %s: %w", currentEvent.PlanningCenterID, err)
-		return
+		return fmt.Errorf("failed to fetch checkouts for event %s: %w", currentEvent.PlanningCenterID, err)
 	}
 	logger.FromContext(ctx).InfoContext(ctx, "fetched checkouts for event", slog.String("event_id", currentEvent.PlanningCenterID), slog.Int("checkouts_count", len(checkouts)))
 
@@ -422,8 +445,7 @@ func (s *Service) processEventCheckouts(ctx context.Context, ev event.Event, err
 
 		co, err := s.checkinRepo.CreateCheckin(ctx, co)
 		if err != nil {
-			errCh <- fmt.Errorf("failed to create checkin: %w", err)
-			return
+			return fmt.Errorf("failed to create checkin for event %s: %w", currentEvent.PlanningCenterID, err)
 		}
 	}
 
@@ -439,11 +461,10 @@ func (s *Service) processEventCheckouts(ctx context.Context, ev event.Event, err
 
 	err = s.eventRepo.UpdateEvent(ctx, updatedEvent)
 	if err != nil {
-		errCh <- fmt.Errorf("failed to update event %d: %w", currentEvent.ID, err)
-		return
+		return fmt.Errorf("failed to update event %d: %w", currentEvent.ID, err)
 	}
 
-	currentEvent.LastCheckedOutTime = newLastCheckedOut
+	return nil
 }
 
 // minutesPerWeek is one week expressed in minutes (Monday 00:00 UTC to the
