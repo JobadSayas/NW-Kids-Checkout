@@ -125,6 +125,31 @@ func isEventFetchFailure(err error) bool {
 	return errors.As(err, &ef)
 }
 
+// errEventFetchError marks a per-event Planning Center fetch that failed with a
+// non-timeout, non-truncation error (e.g. a 5xx server error or a malformed
+// response). It is non-fatal for the loop (like errEventTimeout): the event's
+// LastCheckedOutTime is not advanced so it is retried on a backoff schedule,
+// but the failure is distinguishable so it can be observed and counted instead
+// of treating a transient per-event failure as a hard loop error that would
+// take down the whole worker.
+type errEventFetchError struct {
+	eventID string
+	err     error
+}
+
+func (e errEventFetchError) Error() string {
+	return fmt.Sprintf("failed to fetch checkouts for event %s: %v", e.eventID, e.err)
+}
+
+func (e errEventFetchError) Unwrap() error { return e.err }
+
+// isEventFetchError reports whether err represents a non-fatal per-event fetch
+// failure.
+func isEventFetchError(err error) bool {
+	var ef errEventFetchError
+	return errors.As(err, &ef)
+}
+
 // errEventDropped marks an event batch where one or more checkouts were
 // dropped because their location could not be resolved. It is non-fatal for
 // the loop (like errEventTimeout): the event's LastCheckedOutTime is not
@@ -502,6 +527,15 @@ func (s *Service) eventCheckoutLoop(ctx context.Context, stopCh <-chan struct{})
 		return fmt.Errorf("failed to list events: %w", err)
 	}
 
+	// Bound the retry map to the current auto-fetch event set. Entries are
+	// otherwise only cleared by a fully successful cycle, so an event that
+	// fails and is then removed or disabled would leave a permanent entry.
+	activeIDs := make(map[int64]struct{}, len(events))
+	for _, ev := range events {
+		activeIDs[ev.ID] = struct{}{}
+	}
+	s.pruneRetryStates(activeIDs)
+
 	now := s.now()
 
 	windowsByEvent := make(map[int64][]eventcheckwindow.EventCheckWindow)
@@ -516,7 +550,7 @@ func (s *Service) eventCheckoutLoop(ctx context.Context, stopCh <-chan struct{})
 			windowsByEvent[w.EventID] = append(windowsByEvent[w.EventID], w)
 		}
 
-		active = activeEventIDs(windowsByEvent, now)
+		active = activeEventIDs(logger.FromContext(ctx), windowsByEvent, now)
 	}
 
 	var eventsToUpdate []event.Event
@@ -553,6 +587,7 @@ func (s *Service) eventCheckoutLoop(ctx context.Context, stopCh <-chan struct{})
 		timeouts       int
 		createFailures int
 		fetchFailures  int
+		fetchErrors    int
 		droppedEvents  int
 		errMu          sync.Mutex
 		sem            = make(chan struct{}, 5)
@@ -582,6 +617,8 @@ loop:
 						createFailures++
 					case isEventFetchFailure(err):
 						fetchFailures++
+					case isEventFetchError(err):
+						fetchErrors++
 					case isEventDropped(err):
 						droppedEvents++
 					default:
@@ -605,6 +642,10 @@ loop:
 
 	if fetchFailures > 0 {
 		logger.FromContext(ctx).WarnContext(ctx, "pagination limit exceeded for some events; will retry next cycle", slog.Int("failed_event_count", fetchFailures))
+	}
+
+	if fetchErrors > 0 {
+		logger.FromContext(ctx).WarnContext(ctx, "failed to fetch checkouts for some events; will retry next cycle", slog.Int("failed_event_count", fetchErrors))
 	}
 
 	if droppedEvents > 0 {
@@ -677,6 +718,20 @@ func (s *Service) resetRetryState(eventID int64) {
 	delete(s.eventRetries, eventID)
 }
 
+// pruneRetryStates drops retry state for events that are no longer in the
+// auto-fetch set. Without this the map would grow without bound as events are
+// removed or disabled, since entries are otherwise only cleared on a fully
+// successful cycle.
+func (s *Service) pruneRetryStates(activeIDs map[int64]struct{}) {
+	s.retryMu.Lock()
+	defer s.retryMu.Unlock()
+	for id := range s.eventRetries {
+		if _, ok := activeIDs[id]; !ok {
+			delete(s.eventRetries, id)
+		}
+	}
+}
+
 // inRetryBackoff reports whether ev is currently backed off and should not be
 // selected for processing.
 func (s *Service) inRetryBackoff(eventID int64, now time.Time) bool {
@@ -697,8 +752,9 @@ func (s *Service) processEventCheckouts(ctx context.Context, ev event.Event, now
 	}
 
 	timeToUse := currentEvent.LastCheckedOutTime
-	if timeToUse.Before(now.Add(getLookBackTime())) {
-		timeToUse = now.Add(getLookBackTime())
+	lookBack := getLookBackTime(logger.FromContext(ctx))
+	if timeToUse.Before(now.Add(lookBack)) {
+		timeToUse = now.Add(lookBack)
 	}
 
 	checkouts, err := s.pcClient.GetCheckoutsForEvent(ctx, currentEvent.PlanningCenterID, timeToUse, 0)
@@ -715,7 +771,9 @@ func (s *Service) processEventCheckouts(ctx context.Context, ev event.Event, now
 			s.recordRetryFailure(ctx, currentEvent.ID, now, nil)
 			return errEventFetchFailure{eventID: currentEvent.PlanningCenterID, err: err}
 		}
-		return fmt.Errorf("failed to fetch checkouts for event %s: %w", currentEvent.PlanningCenterID, err)
+		logger.FromContext(ctx).WarnContext(ctx, "failed to fetch checkouts for event", slog.String("event_id", currentEvent.PlanningCenterID), slog.String("error", err.Error()))
+		s.recordRetryFailure(ctx, currentEvent.ID, now, nil)
+		return errEventFetchError{eventID: currentEvent.PlanningCenterID, err: err}
 	}
 	logger.FromContext(ctx).InfoContext(ctx, "fetched checkouts for event", slog.String("event_id", currentEvent.PlanningCenterID), slog.Int("checkouts_count", len(checkouts)))
 
@@ -966,14 +1024,14 @@ func mergeWindows(checkWindows []eventcheckwindow.EventCheckWindow, now time.Tim
 
 // activeEventIDs returns the set of event IDs whose merged check windows cover
 // the time now. Events with no windows are not included.
-func activeEventIDs(windowsByEvent map[int64][]eventcheckwindow.EventCheckWindow, now time.Time) map[int64]bool {
+func activeEventIDs(log *slog.Logger, windowsByEvent map[int64][]eventcheckwindow.EventCheckWindow, now time.Time) map[int64]bool {
 	active := make(map[int64]bool, len(windowsByEvent))
 	nowMinutes := minutesSinceWeekStartUTC(now)
 
 	for eventID, eventWindows := range windowsByEvent {
 		merged, err := mergeWindows(eventWindows, now)
 		if err != nil {
-			slog.Warn("could not merge check windows for event", slog.Int64("event_id", eventID), slog.String("error", err.Error()))
+			log.Warn("could not merge check windows for event", slog.Int64("event_id", eventID), slog.String("error", err.Error()))
 			continue
 		}
 
@@ -988,28 +1046,44 @@ func activeEventIDs(windowsByEvent map[int64][]eventcheckwindow.EventCheckWindow
 	return active
 }
 
-// getLookBackTime returns the time to look back for checkouts based on the CHECKOUT_FETCHER_LOOKBACK_TIME env var
-var getLookBackTime = sync.OnceValue(func() time.Duration {
+var (
+	lookBackOnce   sync.Once
+	lookBackResult time.Duration
+)
+
+// getLookBackTime returns the time to look back for checkouts based on the
+// CHECKOUT_FETCHER_LOOKBACK_TIME env var. The env var is parsed once and
+// cached for the process lifetime; warnings about invalid values are logged
+// through the provided structured logger.
+func getLookBackTime(log *slog.Logger) time.Duration {
+	lookBackOnce.Do(func() {
+		lookBackResult = resolveLookBackTime(log, os.Getenv("CHECKOUT_FETCHER_LOOKBACK_TIME"))
+	})
+	return lookBackResult
+}
+
+// resolveLookBackTime parses a CHECKOUT_FETCHER_LOOKBACK_TIME value, falling
+// back to the default when empty or invalid.
+func resolveLookBackTime(log *slog.Logger, lbStr string) time.Duration {
 	const defaultLookBackTime = -12 * time.Hour
 
-	lbStr := os.Getenv("CHECKOUT_FETCHER_LOOKBACK_TIME")
 	if lbStr == "" {
 		return defaultLookBackTime
 	}
 
 	lb, err := time.ParseDuration(lbStr)
 	if err != nil {
-		slog.Warn("could not parse CHECKOUT_FETCHER_LOOKBACK_TIME, using default", slog.String("env_var", lbStr), slog.Duration("default", defaultLookBackTime))
+		log.Warn("could not parse CHECKOUT_FETCHER_LOOKBACK_TIME, using default", slog.String("env_var", lbStr), slog.Duration("default", defaultLookBackTime))
 		return defaultLookBackTime
 	}
 
 	if lb > 0 {
-		slog.Warn("CHECKOUT_FETCHER_LOOKBACK_TIME must not be greater than 0, using default", slog.String("env_var", lbStr), slog.Duration("default", defaultLookBackTime))
+		log.Warn("CHECKOUT_FETCHER_LOOKBACK_TIME must not be greater than 0, using default", slog.String("env_var", lbStr), slog.Duration("default", defaultLookBackTime))
 		return defaultLookBackTime
 	}
 
 	return lb
-})
+}
 
 func getClients(db *sql.DB) (planningcenter.Client, checkin.Repo, location.Repo, event.Repo, eventcheckwindow.Repo) {
 	if strings.ToLower(os.Getenv("CHECKOUT_FETCHER_USE_MOCK")) != "true" {

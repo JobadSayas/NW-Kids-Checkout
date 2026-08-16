@@ -28,6 +28,18 @@ func (h *CaptureSlogHandler) Handle(_ context.Context, r slog.Record) error {
 func (h *CaptureSlogHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
 func (h *CaptureSlogHandler) WithGroup(string) slog.Handler      { return h }
 
+// ContainsWarn reports whether any WARN record's message contains msgSubstr.
+func (h *CaptureSlogHandler) ContainsWarn(msgSubstr string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, r := range h.records {
+		if r.Level == slog.LevelWarn && strings.Contains(r.Message, msgSubstr) {
+			return true
+		}
+	}
+	return false
+}
+
 // ContainsError reports whether any ERROR record's message contains msgSubstr.
 func (h *CaptureSlogHandler) ContainsError(msgSubstr string) bool {
 	h.mu.Lock()

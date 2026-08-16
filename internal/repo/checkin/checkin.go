@@ -193,6 +193,11 @@ func (s *sqliteRepo) CreateCheckin(ctx context.Context, checkin Checkin) (Checki
 		values = append(values, checkin.EventID)
 	}
 
+	// The conflict update intentionally overwrites the stored checked_out_at and
+	// checked_out_confirmed_at columns with the values passed in, clearing them
+	// (setting NULL) when the incoming value is unset. This is intended behavior:
+	// a re-fetched checkout from Planning Center carries no confirmation
+	// timestamp, so its upsert resets the confirmed time to NULL.
 	conflictSuffix := squirrel.Expr("ON CONFLICT(planning_center_id) DO UPDATE SET checked_out_at = ?, checked_out_confirmed_at = ?", checkedOutAt, checkedOutConfirmedAt)
 	if checkin.EventID > 0 {
 		conflictSuffix = squirrel.Expr("ON CONFLICT(planning_center_id) DO UPDATE SET checked_out_at = ?, checked_out_confirmed_at = ?, event_id = ?", checkedOutAt, checkedOutConfirmedAt, checkin.EventID)

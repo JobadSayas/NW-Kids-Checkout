@@ -268,26 +268,43 @@ func Test_processEventCheckouts_createsCheckinsAndUpdatesEvent(t *testing.T) {
 	assert.True(t, events[0].LastCheckedOutTime.After(time.Now().Add(-1*time.Minute)))
 }
 
-func Test_processEventCheckouts_handlesFetchError(t *testing.T) {
+func Test_processEventCheckouts_genericFetchError_nonFatal(t *testing.T) {
+	events := []event.Event{
+		{ID: 1, PlanningCenterID: "evt_1", AutoFetch: true, LastCheckedOutTime: time.Time{}},
+	}
+
 	eventRepo := &event.MockRepo{
 		GetEventByIDFunc: func(ctx context.Context, id int64) (event.Event, error) {
-			return event.Event{ID: 1, PlanningCenterID: "evt_1", AutoFetch: true, LastCheckedOutTime: time.Time{}}, nil
+			return events[0], nil
+		},
+		UpdateEventFunc: func(ctx context.Context, ev event.Event) error {
+			events[0] = ev
+			return nil
 		},
 	}
 
 	checkinRepo := &checkin.MockRepo{}
 	pcClient := &planningcenter.MockClient{
 		GetCheckoutsForEventFunc: func(ctx context.Context, eventID string, checkedOutOnOrAfter time.Time, limit int) ([]planningcenter.Checkout, error) {
-			return nil, assert.AnError
+			return nil, &planningcenter.ServerError{}
 		},
 	}
 	locationIDMap := sync.Map{}
 	locationIDMap.Store("pc_loc_1", int64(1))
 
 	svc := testService(noCheckWindows(), eventRepo, checkinRepo, pcClient, &locationIDMap, 0, false)
-	err := svc.processEventCheckouts(t.Context(), event.Event{ID: 1, PlanningCenterID: "evt_1"}, svc.now())
+	err := svc.processEventCheckouts(t.Context(), events[0], svc.now())
 	require.Error(t, err)
+	assert.True(t, isEventFetchError(err), "a generic per-event fetch failure should be a non-fatal per-event failure")
 	assert.Contains(t, err.Error(), "failed to fetch checkouts for event")
+	assert.True(t, events[0].LastCheckedOutTime.IsZero(), "event should not advance LastCheckedOutTime on a generic fetch failure")
+	assert.Zero(t, eventRepo.UpdateEventFuncCallCount.Load(), "event should not be marked checked out when the fetch failed")
+
+	svc.retryMu.Lock()
+	st, ok := svc.eventRetries[events[0].ID]
+	svc.retryMu.Unlock()
+	require.True(t, ok, "event should be placed in retry backoff after a generic fetch failure")
+	assert.Equal(t, 1, st.consecutiveFailures)
 }
 
 func Test_processEventCheckouts_paginationLimit_nonFatal(t *testing.T) {
@@ -352,6 +369,32 @@ func Test_eventCheckoutLoop_paginationLimit_nonFatal(t *testing.T) {
 	err := testService(noCheckWindows(), eventRepo, checkinRepo, pcClient, &locationIDMap, 5*time.Minute, false).eventCheckoutLoop(t.Context(), nil)
 	require.NoError(t, err, "pagination-limit truncation should be non-fatal and not fail the loop batch")
 	assert.True(t, events[0].LastCheckedOutTime.IsZero(), "event with pagination-limit truncation should not advance LastCheckedOutTime")
+}
+
+func Test_eventCheckoutLoop_prunesRetryStateForRemovedEvents(t *testing.T) {
+	eventRepo := &event.MockRepo{
+		ListEventsFunc: func(ctx context.Context, filter event.EventFilter) ([]event.Event, error) {
+			return []event.Event{{ID: 1, PlanningCenterID: "evt_1", AutoFetch: true, LastCheckedOutTime: time.Time{}}}, nil
+		},
+	}
+
+	svc := testService(noCheckWindows(), eventRepo, &checkin.MockRepo{}, &planningcenter.MockClient{}, &sync.Map{}, 5*time.Minute, false)
+	svc.retryMu.Lock()
+	svc.eventRetries = map[int64]retryState{
+		1: {consecutiveFailures: 1, backoffUntil: time.Now().Add(time.Hour)},
+		2: {consecutiveFailures: 1, backoffUntil: time.Now().Add(time.Hour)},
+	}
+	svc.retryMu.Unlock()
+
+	err := svc.eventCheckoutLoop(t.Context(), nil)
+	require.NoError(t, err)
+
+	svc.retryMu.Lock()
+	_, stillPresent := svc.eventRetries[1]
+	_, removed := svc.eventRetries[2]
+	svc.retryMu.Unlock()
+	assert.True(t, stillPresent, "retry state for an event still auto-fetched should be preserved")
+	assert.False(t, removed, "retry state for an event no longer auto-fetched should be pruned")
 }
 
 func Test_eventCheckoutLoop_retryBackoff_skipsEventDuringBackoff(t *testing.T) {
@@ -751,7 +794,7 @@ func Test_processEventCheckouts_createFailureDoesNotAbortBatch(t *testing.T) {
 	assert.True(t, events[0].LastCheckedOutTime.IsZero(), "LastCheckedOutTime should remain unchanged so the event is retried next cycle")
 }
 
-func Test_eventCheckoutLoop_workerError_aggregated(t *testing.T) {
+func Test_eventCheckoutLoop_genericFetchError_nonFatal(t *testing.T) {
 	events := []event.Event{
 		{ID: 1, PlanningCenterID: "evt_ok", AutoFetch: true, LastCheckedOutTime: time.Time{}},
 		{ID: 2, PlanningCenterID: "evt_fail", AutoFetch: true, LastCheckedOutTime: time.Time{}},
@@ -794,7 +837,7 @@ func Test_eventCheckoutLoop_workerError_aggregated(t *testing.T) {
 	pcClient := &planningcenter.MockClient{
 		GetCheckoutsForEventFunc: func(ctx context.Context, eventID string, checkedOutOnOrAfter time.Time, limit int) ([]planningcenter.Checkout, error) {
 			if eventID == "evt_fail" {
-				return nil, assert.AnError
+				return nil, &planningcenter.ServerError{}
 			}
 			return []planningcenter.Checkout{{ID: "c_ok", PlanningCenterLocationID: "pc_loc_1"}}, nil
 		},
@@ -804,10 +847,9 @@ func Test_eventCheckoutLoop_workerError_aggregated(t *testing.T) {
 	locationIDMap.Store("pc_loc_1", int64(1))
 
 	err := testService(noCheckWindows(), eventRepo, checkinRepo, pcClient, &locationIDMap, 5*time.Minute, false).eventCheckoutLoop(t.Context(), nil)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to fetch checkouts for event evt_fail", "worker error should be aggregated into the loop error")
+	require.NoError(t, err, "a generic per-event fetch failure should not fail the loop batch")
 
-	assert.False(t, events[0].LastCheckedOutTime.IsZero(), "successful event should be updated despite another event failing")
+	assert.False(t, events[0].LastCheckedOutTime.IsZero(), "successful event should still be updated despite another event failing")
 	assert.True(t, events[1].LastCheckedOutTime.IsZero(), "failed event should not advance LastCheckedOutTime")
 }
 
@@ -1433,6 +1475,23 @@ func TestLocalToUTCWeekMinutes(t *testing.T) {
 	assert.Equal(t, 780, got, "Monday 09:00 NY should be 780 minutes (13:00 UTC)")
 }
 
+func TestLocalToUTCWeekMinutes_DSTWeek_usesPerDateOffset(t *testing.T) {
+	// US DST begins Sunday 2026-03-08 02:00 local. A Sunday window must be
+	// converted with the offset that actually applies on that Sunday (EDT,
+	// UTC-4), not the offset of the anchor day (Monday). The minute value is
+	// therefore different in the DST week than in the EST week.
+	dstWeek := time.Date(2026, 3, 11, 16, 0, 0, 0, time.UTC) // Wed after DST start
+
+	got, err := localToUTCWeekMinutes(7, 10, 0, "America/New_York", dstWeek)
+	require.NoError(t, err)
+	assert.Equal(t, 9480, got, "Sunday 10:00 in the DST week is 14:00 UTC = 6 days + 14h after Monday 00:00 UTC")
+
+	estWeek := time.Date(2026, 2, 25, 17, 0, 0, 0, time.UTC) // Wed in a week fully before DST
+	got, err = localToUTCWeekMinutes(7, 10, 0, "America/New_York", estWeek)
+	require.NoError(t, err)
+	assert.Equal(t, 9540, got, "Sunday 10:00 in the EST week is 15:00 UTC = 6 days + 15h after Monday 00:00 UTC")
+}
+
 func TestLocalToUTCWeekMinutes_SameDay(t *testing.T) {
 	now := time.Date(2026, 3, 25, 12, 0, 0, 0, time.UTC)
 
@@ -1535,6 +1594,69 @@ func TestMergeWindows(t *testing.T) {
 			assert.Len(t, got, tt.wantLen)
 		})
 	}
+}
+
+func Test_activeEventIDs_sundayEvening_boundary(t *testing.T) {
+	// Sunday evening in America/New_York overlaps UTC Monday (local Sunday
+	// 21:00 EST = Monday 02:00 UTC). The window comparison must be anchored to
+	// the local week so events whose windows are not yet open are not
+	// spuriously marked active during that overlap.
+	loc, err := time.LoadLocation("America/New_York")
+	require.NoError(t, err)
+	now := time.Date(2026, 3, 8, 21, 0, 0, 0, loc)
+
+	windowsByEvent := map[int64][]eventcheckwindow.EventCheckWindow{
+		1: {
+			{StartDayOfWeek: 7, StartTime: "20:00", EndDayOfWeek: 1, EndTime: "02:00", Timezone: "America/New_York"},
+		},
+		2: {
+			{StartDayOfWeek: 1, StartTime: "09:00", EndDayOfWeek: 1, EndTime: "11:00", Timezone: "America/New_York"},
+		},
+	}
+
+	active := activeEventIDs(slog.Default(), windowsByEvent, now)
+	assert.True(t, active[1], "Sunday 20:00-Monday 02:00 window should be active at Sunday 21:00 local")
+	assert.False(t, active[2], "Monday 09:00-11:00 window must not be active at Sunday 21:00 local")
+}
+
+func Test_eventCheckoutLoop_windowMergeError_logsViaContextLogger(t *testing.T) {
+	capture := &logger.CaptureSlogHandler{}
+	logCtx := logger.WithLogger(t.Context(), slog.New(capture))
+
+	eventRepo := &event.MockRepo{
+		ListEventsFunc: func(ctx context.Context, filter event.EventFilter) ([]event.Event, error) {
+			return []event.Event{{ID: 1, PlanningCenterID: "evt_1", AutoFetch: true, LastCheckedOutTime: time.Time{}}}, nil
+		},
+	}
+	checkWindowRepo := &eventcheckwindow.MockRepo{
+		ListCheckWindowsFunc: func(ctx context.Context, filter eventcheckwindow.Filter) ([]eventcheckwindow.EventCheckWindow, error) {
+			return []eventcheckwindow.EventCheckWindow{
+				{EventID: 1, StartDayOfWeek: 1, StartTime: "09:00", EndDayOfWeek: 1, EndTime: "10:00", Timezone: "Invalid/Timezone"},
+			}, nil
+		},
+	}
+
+	svc := testService(checkWindowRepo, eventRepo, &checkin.MockRepo{}, &planningcenter.MockClient{}, &sync.Map{}, 5*time.Minute, true)
+	err := svc.eventCheckoutLoop(logCtx, nil)
+	require.NoError(t, err)
+
+	assert.True(t, capture.ContainsWarn("could not merge check windows for event"), "window merge failure should be logged via the context logger")
+}
+
+func Test_resolveLookBackTime_logsWarningViaLogger(t *testing.T) {
+	capture := &logger.CaptureSlogHandler{}
+	log := slog.New(capture)
+
+	got := resolveLookBackTime(log, "not-a-duration")
+	assert.Equal(t, -12*time.Hour, got)
+	assert.True(t, capture.ContainsWarn("could not parse CHECKOUT_FETCHER_LOOKBACK_TIME"))
+
+	got = resolveLookBackTime(log, "5m")
+	assert.Equal(t, -12*time.Hour, got)
+	assert.True(t, capture.ContainsWarn("CHECKOUT_FETCHER_LOOKBACK_TIME must not be greater than 0"))
+
+	got = resolveLookBackTime(log, "-30m")
+	assert.Equal(t, -30*time.Minute, got)
 }
 
 func Test_eventCheckoutLoop_windowFiltersEvents(t *testing.T) {
