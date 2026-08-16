@@ -9,6 +9,7 @@ import (
 	"kids-checkin/internal/controllers/middleware"
 	"log/slog"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -142,7 +143,22 @@ func StartServer(port int, dbFilepath string) error {
 	})
 
 	// Serve static pages. Should be the last of all registered routes.
+	// Files under /static/dev/* are dev-only assets served from the
+	// dev-assets directory when running in a dev environment. See
+	// internal/web/dev-assets/README.md.
 	app.Use("/static", func(c *fiber.Ctx) error {
+		if strings.HasPrefix(c.Path(), "/static/dev/") {
+			if !static.IsDev() {
+				return fiber.ErrNotFound
+			}
+			data, err := static.ReadDevAsset(strings.TrimPrefix(c.Path(), "/static/dev/"))
+			if err != nil {
+				return fiber.ErrNotFound
+			}
+			c.Set("Cache-Control", "no-store")
+			c.Type(filepath.Ext(c.Path()))
+			return c.Send(data)
+		}
 		c.Set("Cache-Control", "public, max-age=31536000, immutable")
 		return c.Next()
 	})

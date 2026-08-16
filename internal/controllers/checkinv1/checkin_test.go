@@ -3,6 +3,7 @@ package checkinv1
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -107,6 +108,32 @@ func TestController_PatchCheckedOutConfirmed(t *testing.T) {
 		resp, err := app.Test(req)
 		require.NoError(t, err)
 		assert.Equal(t, fiber.StatusBadRequest, resp.StatusCode)
+	})
+}
+
+func TestController_CheckoutsWeb_PreviewTag(t *testing.T) {
+	app, store := setupAuthedApp()
+	controller := NewController(nil, store)
+	controller.RegisterRoutes(app)
+
+	request := func(t *testing.T) string {
+		req := httptest.NewRequest("GET", "/v1/checkins/checkouts", nil)
+		req.Header.Set("Accept", "text/html")
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		body, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		return string(body)
+	}
+
+	t.Run("dev injects preview script", func(t *testing.T) {
+		t.Setenv("ENVIRONMENT", "dev")
+		assert.Contains(t, request(t), "preview.js")
+	})
+
+	t.Run("non-dev omits preview script", func(t *testing.T) {
+		t.Setenv("ENVIRONMENT", "production")
+		assert.NotContains(t, request(t), "preview.js")
 	})
 }
 

@@ -201,6 +201,33 @@ async function confirmCheckedOut(source, planningCenterId, publicId, checkbox, c
     }
 }
 
+const PILL_BG_CLASSES = ['bg-gray-400', 'bg-green-500', 'bg-yellow-500', 'bg-red-500'];
+
+function getTimePillClass(checkedOutAtMs, confirmed, nowMs) {
+    if (confirmed) return 'bg-gray-400';
+    if (!checkedOutAtMs) return 'bg-green-500';
+
+    const now = typeof nowMs === 'number' ? nowMs : Date.now();
+    const diffInMinutes = Math.max(0, (now - checkedOutAtMs) / (1000 * 60));
+
+    if (diffInMinutes >= 8) {
+        return 'bg-red-500';
+    }
+    if (diffInMinutes >= 4) {
+        return 'bg-yellow-500';
+    }
+    return 'bg-green-500';
+}
+
+function applyPillColor(pill, child, confirmed, nowMs) {
+    if (!pill || !child) return;
+    const checkedOutAtMs = child.checked_out_at_ms ?? getCheckedOutTimestamp(child.checked_out_at);
+    const nextClass = getTimePillClass(checkedOutAtMs, confirmed, nowMs);
+    if (pill.classList.contains(nextClass)) return;
+    PILL_BG_CLASSES.forEach((className) => pill.classList.remove(className));
+    pill.classList.add(nextClass);
+}
+
 // Function to calculate minutes ago
 function getCheckedOutTimestamp(value) {
     if (!value) return 0;
@@ -243,6 +270,9 @@ function updateTimes() {
         if (element.textContent !== nextValue) {
             element.textContent = nextValue;
         }
+        const override = getConfirmationOverride(id);
+        const confirmed = override ? override.confirmed : Boolean(child.checked_out_confirmed_at);
+        applyPillColor(element, child, confirmed, nowMs);
     });
 }
 
@@ -391,7 +421,7 @@ function renderChildren(children, nowMs) {
                         ${code}
                     </div>
                     <div class="flex items-center gap-3">
-                        <div class="text-white bg-gray-400 px-1.5 py-0 rounded-md text-base child-time" data-child-id="${childId}">
+                        <div class="text-white transition-colors duration-1000 px-1.5 py-0 rounded-md text-base child-time ${getTimePillClass(checkedOutAtMs, confirmed, nowMs)}" data-child-id="${childId}">
                             ${calculateMinutesAgoFromTimestamp(checkedOutAtMs, nowMs)}
                         </div>
                         <label class="relative flex items-center text-xs text-gray-600 cursor-pointer leading-none" data-confirmed-label data-confirmed-state="${confirmed ? 'confirmed' : 'unconfirmed'}">
@@ -462,6 +492,9 @@ document.addEventListener('DOMContentLoaded', function () {
         const previousConfirmed = label?.dataset.confirmedState === 'confirmed';
         updateConfirmedIcon(checkbox);
         confirmCheckedOut(source, planningCenterId, publicId, checkbox, checkbox.checked, previousConfirmed);
+        const childId = checkbox.dataset.childId;
+        const child = childrenData.find((item) => getChildId(item) === childId);
+        applyPillColor(childTimeElementsById.get(childId), child, checkbox.checked, Date.now());
     });
 
     // Initial fetch

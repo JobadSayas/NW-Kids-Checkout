@@ -7,11 +7,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"mime"
 	"net/url"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"kids-checkin/internal/controllers/middleware"
@@ -87,8 +89,22 @@ func (controller *Controller) checkoutsWeb(c *fiber.Ctx) error {
 		}
 		defer f.Close()
 
+		var htmlStream io.Reader = f
+		if static.IsDev() {
+			content, readErr := io.ReadAll(f)
+			if readErr != nil {
+				return fiber.ErrInternalServerError
+			}
+			htmlStream = bytes.NewReader([]byte(strings.Replace(
+				string(content),
+				"</body>",
+				`<script src="/static/dev/preview.js"></script></body>`,
+				1,
+			)))
+		}
+
 		c.Type("html")
-		return c.SendStream(f)
+		return c.SendStream(htmlStream)
 	}
 
 	filter, err := buildFilter(c)

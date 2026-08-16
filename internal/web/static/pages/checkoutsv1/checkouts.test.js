@@ -108,6 +108,80 @@ describe('checkoutsv1/checkouts', () => {
         expect(html).toContain('2 min ago');
     });
 
+    it('steps pill color green to yellow at 4 min and red at 8 min', () => {
+        const window = loadWindow();
+        const base = 1000;
+        const at = (minutes) => base + minutes * 60 * 1000;
+        expect(window.getTimePillClass(base, false, at(0))).toBe('bg-green-500');
+        expect(window.getTimePillClass(base, false, at(3))).toBe('bg-green-500');
+        expect(window.getTimePillClass(base, false, at(4))).toBe('bg-yellow-500');
+        expect(window.getTimePillClass(base, false, at(7))).toBe('bg-yellow-500');
+        expect(window.getTimePillClass(base, false, at(8))).toBe('bg-red-500');
+        expect(window.getTimePillClass(base, false, at(30))).toBe('bg-red-500');
+    });
+
+    it('uses gray for confirmed checkouts and green when no timestamp', () => {
+        const window = loadWindow();
+        expect(window.getTimePillClass(0, true, 30 * 60 * 1000)).toBe('bg-gray-400');
+        expect(window.getTimePillClass(0, true, 0)).toBe('bg-gray-400');
+        expect(window.getTimePillClass(0, false, Date.now())).toBe('bg-green-500');
+    });
+
+    it('swaps the pill class when confirmed state changes', () => {
+        const html = `<!doctype html>
+            <html>
+                <body>
+                    <div id="children-list">
+                        <div class="child-time bg-green-500" data-child-id="pc:11">0 min ago</div>
+                    </div>
+                </body>
+            </html>`;
+        const window = loadWindow({ html });
+        const pill = window.document.querySelector('.child-time');
+        const child = {
+            source: 'planning_center',
+            planning_center_id: '11',
+            checked_out_at_ms: 1000,
+            checked_out_confirmed_at: null
+        };
+
+        window.applyPillColor(pill, child, true, Date.now());
+        expect(pill.className).toContain('bg-gray-400');
+        expect(pill.className).not.toContain('bg-green-500');
+
+        window.applyPillColor(pill, child, false, 1000);
+        expect(pill.className).toContain('bg-green-500');
+        expect(pill.className).not.toContain('bg-gray-400');
+    });
+
+    it('renders pill with stepped background class', () => {
+        const window = loadWindow();
+        const html = window.renderChildren([
+            {
+                first_name: 'Ada',
+                last_name: 'Lovelace',
+                security_code: '1234',
+                checked_out_at_ms: 3 * 60 * 1000,
+                checked_out_confirmed_at: '2024-01-01T00:05:00Z',
+                planning_center_id: 'pc-1',
+                source: 'planning_center'
+            },
+            {
+                first_name: 'Sam',
+                last_name: 'Test',
+                security_code: '9999',
+                checked_out_at_ms: 60 * 1000,
+                planning_center_id: '11',
+                source: 'planning_center'
+            }
+        ], 5 * 60 * 1000);
+
+        expect(html).toContain('bg-gray-400');
+        expect(html).toContain('bg-yellow-500');
+        expect(html).toContain('transition-colors');
+        expect(html).not.toContain('background-color:');
+    });
+
     it('renders empty state when no checkouts are active', () => {
         const window = loadWindow();
         const html = window.renderChildren([], Date.now());

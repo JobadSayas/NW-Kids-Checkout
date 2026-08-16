@@ -131,6 +131,11 @@ This file guides coding agents working in this repo. Keep changes small, follow 
 - When adding assets, check the embedding pipeline in `cmd/assets`.
 - Tailwind output lives at `internal/web/static/css/tailwind.css`.
 
+### Dev-only assets (debug tooling)
+- Dev/debug tools live in `internal/web/dev-assets/` and are served at `/static/dev/*` **only when `ENVIRONMENT=dev`** (via `static.IsDev()`); in production they 404 and are not embedded into the binary. See `internal/web/dev-assets/README.md`.
+- Add a new tool by dropping the file in `internal/web/dev-assets/` and referencing it from a page handler (inject the `<script>` tag in the page's HTML handler when `static.IsDev()`, mirroring the `checkoutsWeb` preview.js pattern).
+- Helpers: `static.DevAssetsDir`, `static.ReadDevAsset(filename)`, `static.IsDev()`.
+
 ## Environment and secrets
 
 - Local configuration is loaded via `godotenv` in Makefile targets; keep `.env` out of commits.
