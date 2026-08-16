@@ -108,10 +108,10 @@ describe('checkoutsv1/checkouts', () => {
         expect(html).toContain('2 min ago');
     });
 
-    it('renders empty state when no children have been called', () => {
+    it('renders empty state when no checkouts are active', () => {
         const window = loadWindow();
         const html = window.renderChildren([], Date.now());
-        expect(html).toContain('No children called yet');
+        expect(html).toContain('No active checkouts');
     });
 
     it('shows error state in children list on fetch error', async () => {

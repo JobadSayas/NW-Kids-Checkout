@@ -6,7 +6,7 @@ const DEBUG = new URLSearchParams(window.location.search).has('debug');
 let childrenData = [];
 let childrenFetchController = null;
 let childTimeElementsById = new Map();
-let lastListSignature = '';
+let lastListSignature = null;
 const CONFIRM_OVERRIDE_TTL_MS = 15000;
 const confirmationOverrides = new Map();
 const dom = {
@@ -367,7 +367,7 @@ function updateUI() {
 
 function renderChildren(children, nowMs) {
     if (children.length === 0) {
-        return '<div class="text-center text-gray-500 py-8">No children called yet</div>';
+        return '<div class="text-center text-gray-500 py-8 text-3xl">No active checkouts</div>';
     }
 
     return children.map((child) => {
