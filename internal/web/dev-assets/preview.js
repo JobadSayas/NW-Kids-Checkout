@@ -13,7 +13,11 @@ function loadPreviewData() {
         { first_name: 'Fresh', last_name: 'Kid', security_code: '1111', source: 'planning_center', planning_center_id: 'demo-0', checked_out_at_ms: ago(0), checked_out_confirmed_at: null },
         { first_name: 'Edge', last_name: 'Kid', security_code: '2222', source: 'planning_center', planning_center_id: 'demo-4', checked_out_at_ms: ago(3.9), checked_out_confirmed_at: null },
         { first_name: 'Late', last_name: 'Kid', security_code: '3333', source: 'planning_center', planning_center_id: 'demo-8', checked_out_at_ms: ago(7.9), checked_out_confirmed_at: null },
-        { first_name: 'Done', last_name: 'Kid', security_code: '4444', source: 'planning_center', planning_center_id: 'demo-c', checked_out_at_ms: ago(2), checked_out_confirmed_at: '2024-01-01T00:00:00Z' }
+        { first_name: 'Done', last_name: 'Kid', security_code: '4444', source: 'planning_center', planning_center_id: 'demo-c', checked_out_at_ms: ago(2), checked_out_confirmed_at: '2024-01-01T00:00:00Z' },
+        { first_name: 'Manu', last_name: 'Checkin', source: 'manual', public_id: 'demo-m0', checked_out_at_ms: ago(0), checked_out_confirmed_at: null },
+        { first_name: 'Manual', last_name: 'Edge', source: 'manual', public_id: 'demo-m4', checked_out_at_ms: ago(3.9), checked_out_confirmed_at: null },
+        { first_name: 'Manual', last_name: 'Late', source: 'manual', public_id: 'demo-m8', checked_out_at_ms: ago(7.9), checked_out_confirmed_at: null },
+        { first_name: 'Manual', last_name: 'Done', source: 'manual', public_id: 'demo-mc', checked_out_at_ms: ago(2), checked_out_confirmed_at: '2024-01-01T00:00:00Z' }
     ];
 
     updateUI();

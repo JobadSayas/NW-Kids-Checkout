@@ -37,10 +37,13 @@ describe('checkoutsv1/preview', () => {
         expect(window.__test.getApiCallBlocks().fetchChildrenData).toBe(true);
 
         const data = window.__test.getChildrenData();
-        expect(data).toHaveLength(4);
-        expect(data.map((child) => child.planning_center_id))
-            .toEqual(['demo-0', 'demo-4', 'demo-8', 'demo-c']);
+        expect(data).toHaveLength(8);
+        expect(data.map((child) => child.source))
+            .toEqual(['planning_center', 'planning_center', 'planning_center', 'planning_center', 'manual', 'manual', 'manual', 'manual']);
+        expect(data.map((child) => child.planning_center_id || child.public_id))
+            .toEqual(['demo-0', 'demo-4', 'demo-8', 'demo-c', 'demo-m0', 'demo-m4', 'demo-m8', 'demo-mc']);
         expect(data[0].checked_out_confirmed_at).toBeNull();
         expect(data[3].checked_out_confirmed_at).toBe('2024-01-01T00:00:00Z');
+        expect(data[7].checked_out_confirmed_at).toBe('2024-01-01T00:00:00Z');
     });
 });
