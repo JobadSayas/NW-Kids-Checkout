@@ -25,8 +25,6 @@ func (controller *Controller) RegisterRoutes(app *fiber.App) {
 	adminGroup.Get("/locations", controller.GetLocations)
 	adminGroup.Get("/planningcenter/events", controller.GetPlanningCenterEvents)
 	adminGroup.Get("/planningcenter/events/:id", controller.GetPlanningCenterEvent)
-	adminGroup.Get("/event-check-windows", controller.GetEventCheckWindows)
-	adminGroup.Get("/event-check-windows-detail", controller.GetEventCheckWindowsDetail)
 }
 
 func (controller *Controller) GetLanding(c *fiber.Ctx) error {
@@ -64,28 +62,6 @@ func (controller *Controller) GetPlanningCenterEvents(c *fiber.Ctx) error {
 
 func (controller *Controller) GetPlanningCenterEvent(c *fiber.Ctx) error {
 	f, err := static.EmbeddedFS.Open("pages/admin/planningcenter-event.html")
-	if err != nil {
-		return fiber.ErrInternalServerError
-	}
-	defer f.Close()
-
-	c.Type("html")
-	return c.SendStream(f)
-}
-
-func (controller *Controller) GetEventCheckWindows(c *fiber.Ctx) error {
-	f, err := static.EmbeddedFS.Open("pages/admin/event-check-windows.html")
-	if err != nil {
-		return fiber.ErrInternalServerError
-	}
-	defer f.Close()
-
-	c.Type("html")
-	return c.SendStream(f)
-}
-
-func (controller *Controller) GetEventCheckWindowsDetail(c *fiber.Ctx) error {
-	f, err := static.EmbeddedFS.Open("pages/admin/event-check-windows-detail.html")
 	if err != nil {
 		return fiber.ErrInternalServerError
 	}
