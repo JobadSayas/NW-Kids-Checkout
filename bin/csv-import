@@ -9,16 +9,16 @@ ATTACH 'seed/seed.db' AS seed;
 
 BEGIN;
 
-INSERT INTO events
-SELECT *
+INSERT OR REPLACE INTO events (id, name, planning_center_id, auto_fetch)
+SELECT id, name, planning_center_id, 1
 FROM seed.events;
 
-INSERT INTO location_groups
-SELECT *
+INSERT OR REPLACE INTO location_groups (id, name)
+SELECT id, name
 FROM seed.location_groups;
 
-INSERT INTO locations
-SELECT *
+INSERT OR REPLACE INTO locations (id, planning_center_id, planning_center_parent_id, location_group_id, event_id, name, auto_fetch, last_checked_out_time)
+SELECT id, planning_center_id, planning_center_parent_id, location_group_id, event_id, name, auto_fetch, last_checked_out_time
 FROM seed.locations;
 
 COMMIT;

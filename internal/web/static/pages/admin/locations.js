@@ -131,7 +131,7 @@ function renderLocations() {
                 </select>
             </td>
             <td class="px-4 py-3">
-                <label class="flex cursor-pointer items-center gap-3 text-sm text-slate-700">
+                <label class="inline-flex cursor-pointer items-center gap-3 text-sm text-slate-700">
                     <span class="relative inline-flex h-5 w-9 items-center">
                         <input type="checkbox" class="event-auto-fetch-toggle peer absolute opacity-0 w-0 h-0" ${event.auto_fetch ? 'checked' : ''}>
                         <span class="toggle-bg h-5 w-9 rounded-full" style="background-color: ${event.auto_fetch ? 'var(--color-emerald-500)' : 'var(--color-slate-200)'}"></span>
