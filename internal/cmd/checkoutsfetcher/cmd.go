@@ -29,11 +29,31 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
+// eventMutexStripeCount is the number of striped per-event locks. A fixed pool
+// bounds memory: a per-event map of mutexes would grow without bound as new
+// events are created. The worker semaphore caps concurrency at 5, so 64 stripes
+// keep false sharing between unrelated events negligible.
+const eventMutexStripeCount = 64
+
 // shutdownGracePeriod is how long the fetcher waits for in-flight work to drain
 // after a shutdown signal before force-exiting. It is set slightly above the
 // Planning Center client's HTTP timeout so a single in-flight request can
 // finish before the force-exit fires.
 const shutdownGracePeriod = 11 * time.Second
+
+// retryBackoffBase is the initial delay before an event that failed to fully
+// resolve is retried. Each consecutive failure doubles the delay up to
+// retryBackoffMax, so a poison event cannot livelock the fetcher by forcing a
+// full 12h lookback re-fetch on every 3s cycle.
+const retryBackoffBase = 5 * time.Second
+
+// retryBackoffMax caps the per-event retry backoff.
+const retryBackoffMax = 5 * time.Minute
+
+// retryEscalationThreshold is the number of consecutive per-event failures
+// before the fetcher logs the event at ERROR severity. Before this threshold
+// the failures are logged at WARN, so a quietly failing event is not invisible.
+const retryEscalationThreshold = 5
 
 // errEventTimeout marks a per-event Planning Center fetch that timed out. It
 // is treated as non-fatal for the loop (like success) but is distinguishable
@@ -55,6 +75,128 @@ func isEventTimeout(err error) bool {
 	return errors.As(err, &te)
 }
 
+// errEventCheckinFailure marks an event batch where one or more checkins could
+// not be created. It is non-fatal for the loop (like a timeout): the event's
+// LastCheckedOutTime is not advanced, so the failed rows are retried on a
+// backoff schedule, but the failure is distinguishable so it can be observed
+// and counted instead of being treated as a hard loop error. The retry
+// guarantee only holds while the failed rows remain inside the trailing
+// lookback window (default 12h): if the worker is down for longer than the
+// lookback between a failed attempt and its retry, the rows fall out of the
+// fetch range and are permanently lost.
+type errEventCheckinFailure struct {
+	eventID string
+	errs    []error
+}
+
+func (e errEventCheckinFailure) Error() string {
+	return fmt.Sprintf("failed to create checkins for event %s: %v", e.eventID, errors.Join(e.errs...))
+}
+
+func (e errEventCheckinFailure) Unwrap() error { return errors.Join(e.errs...) }
+
+// isEventCheckinFailure reports whether err represents a non-fatal per-event
+// checkin-creation failure.
+func isEventCheckinFailure(err error) bool {
+	var cf errEventCheckinFailure
+	return errors.As(err, &cf)
+}
+
+// errEventFetchFailure marks a per-event Planning Center fetch that was
+// truncated by the pagination guard. Like errEventTimeout it is non-fatal for
+// the loop: the event's LastCheckedOutTime is not advanced so it is retried
+// next cycle, but the failure is distinguishable so it can be observed and
+// counted instead of being treated as a hard loop error.
+type errEventFetchFailure struct {
+	eventID string
+	err     error
+}
+
+func (e errEventFetchFailure) Error() string {
+	return fmt.Sprintf("fetching checkouts for event %s failed: %v", e.eventID, e.err)
+}
+
+func (e errEventFetchFailure) Unwrap() error { return e.err }
+
+// isEventFetchFailure reports whether err represents a non-fatal per-event
+// fetch truncation.
+func isEventFetchFailure(err error) bool {
+	var ef errEventFetchFailure
+	return errors.As(err, &ef)
+}
+
+// errEventDropped marks an event batch where one or more checkouts were
+// dropped because their location could not be resolved. It is non-fatal for
+// the loop (like errEventTimeout): the event's LastCheckedOutTime is not
+// advanced so the dropped rows are retried on a backoff schedule, but the
+// failure is distinguishable so it can be observed and counted in the cycle
+// summary instead of being invisible to the loop.
+type errEventDropped struct {
+	eventID      string
+	droppedCount int
+}
+
+func (e errEventDropped) Error() string {
+	return fmt.Sprintf("dropped %d checkouts for event %s", e.droppedCount, e.eventID)
+}
+
+// isEventDropped reports whether err represents a non-fatal per-event drop.
+func isEventDropped(err error) bool {
+	var ed errEventDropped
+	return errors.As(err, &ed)
+}
+
+// errForceExitNow is returned by runSignalLoop when a second shutdown signal is
+// received, so the caller can force-exit the process immediately. A hard exit
+// is intentionally terminal and is not part of the normal error plumbing.
+var errForceExitNow = errors.New("second shutdown signal received; exiting immediately")
+
+// runSignalLoop relays OS signals to the fetcher's shutdown machinery until
+// sigDone is closed. The first signal starts a graceful drain: stopCh is closed
+// so no new work is scheduled, and a timer arms forceExitCh after gracePeriod so
+// the caller can force-exit if draining takes too long. A second signal returns
+// errForceExitNow so the caller can hard-exit immediately.
+//
+// It runs until sigDone is closed so the goroutine is cleaned up on normal
+// shutdown (the first signal alone would otherwise leave it blocked on the
+// channel for the rest of the process lifetime). Any pending force-exit timer
+// is stopped when it exits.
+func runSignalLoop(logCtx context.Context, sigCh <-chan os.Signal, sigDone <-chan struct{}, stopOnce *sync.Once, stopCh, forceExitCh chan struct{}, gracePeriod time.Duration) error {
+	var forceExitTimer *time.Timer
+	firstSignal := true
+	for {
+		select {
+		case <-sigDone:
+			if forceExitTimer != nil {
+				forceExitTimer.Stop()
+			}
+			return nil
+		case <-sigCh:
+		}
+
+		if firstSignal {
+			firstSignal = false
+			stopOnce.Do(func() {
+				logger.FromContext(logCtx).InfoContext(logCtx, "received shutdown signal, draining; no new work will be scheduled")
+				close(stopCh)
+				forceExitTimer = time.AfterFunc(gracePeriod, func() {
+					close(forceExitCh)
+				})
+			})
+			continue
+		}
+
+		// A second signal is the operator's hard-stop request. The pending
+		// force-exit timer is no longer needed and must be stopped so its
+		// callback cannot fire into forceExitCh after the caller has left the
+		// normal shutdown flow.
+		if forceExitTimer != nil {
+			forceExitTimer.Stop()
+		}
+		return errForceExitNow
+	}
+}
+
 // Service coordinates the by-event checkout fetcher. It owns the Planning
 // Center client, the repos it reads and writes, and the in-memory location
 // map (PlanningCenterID -> local ID) used to resolve checkout locations.
@@ -66,24 +208,39 @@ type Service struct {
 	locationsRepo   location.Repo
 
 	locationIDMap       *sync.Map
-	eventMutexes        sync.Map
+	eventMutexStripes   [eventMutexStripeCount]sync.Mutex
 	eventUpdateInterval time.Duration
 	useCheckWindows     bool
+	// now is the time source used for scheduling decisions (e.g. check-window
+	// evaluation and update-interval checks). It is a field rather than a
+	// package global so tests can inject a stub clock without mutating shared
+	// state; it defaults to time.Now.
+	now func() time.Time
+
+	// retryMu guards eventRetries. Events that fail to fully resolve (dropped
+	// checkouts, create failures, pagination truncation) are placed in backoff
+	// so they are not re-selected every cycle while failing; a success clears
+	// the event's state. The map is bounded by the number of auto-fetch events.
+	retryMu      sync.Mutex
+	eventRetries map[int64]retryState
 }
 
-func FetchCheckouts(ctx context.Context, cmd *cli.Command) error {
-	return FetchCheckoutsV2(ctx, cmd)
+// retryState tracks consecutive failures for a single event and when it may be
+// selected again.
+type retryState struct {
+	consecutiveFailures int
+	backoffUntil        time.Time
 }
 
-// FetchCheckoutsV2 runs the by-event checkout fetcher. It periodically polls
+// FetchCheckouts runs the by-event checkout fetcher. It periodically polls
 // Planning Center for new checkouts per event, using a background goroutine
 // to keep an in-memory location map (PlanningCenterID -> local ID) refreshed
 // every 5 minutes.
-func FetchCheckoutsV2(ctx context.Context, cmd *cli.Command) error {
+func FetchCheckouts(ctx context.Context, cmd *cli.Command) error {
 	dbFile := cmd.String("db-file")
 	database, err := db.InitDB(dbFile)
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("init db %s: %w", dbFile, err)
 	}
 
 	defer database.Close()
@@ -121,22 +278,27 @@ func FetchCheckoutsV2(ctx context.Context, cmd *cli.Command) error {
 
 	stopCh := make(chan struct{})
 	forceExitCh := make(chan struct{})
+	sigDone := make(chan struct{})
 	var stopOnce sync.Once
 
+	// The signal handler is unregistered on return so a second call to
+	// FetchCheckouts cannot stack handlers, and sigDone is closed so the loop
+	// goroutine exits instead of blocking on the channel forever after a normal
+	// shutdown.
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
+	defer close(sigDone)
+
 	go func() {
-		<-sigCh
-		stopOnce.Do(func() {
-			logger.FromContext(logCtx).InfoContext(logCtx, "received shutdown signal, draining; no new work will be scheduled")
-			close(stopCh)
-			time.AfterFunc(shutdownGracePeriod, func() {
-				close(forceExitCh)
-			})
-		})
-		<-sigCh
-		logger.FromContext(logCtx).ErrorContext(logCtx, "received second shutdown signal, exiting immediately")
-		os.Exit(1)
+		err := runSignalLoop(logCtx, sigCh, sigDone, &stopOnce, stopCh, forceExitCh, shutdownGracePeriod)
+		if errors.Is(err, errForceExitNow) {
+			// The second signal is the operator's hard-stop request; it must
+			// terminate the process even if the main flow is wedged, so it
+			// bypasses normal error plumbing.
+			logger.FromContext(logCtx).ErrorContext(logCtx, "received second shutdown signal, exiting immediately")
+			os.Exit(1)
+		}
 	}()
 
 	pcClient, checkinRepo, locationsRepo, eventRepo, eventCheckWindowRepo := getClients(database)
@@ -163,6 +325,7 @@ func FetchCheckoutsV2(ctx context.Context, cmd *cli.Command) error {
 		locationIDMap:       &locationMap,
 		eventUpdateInterval: eventUpdateInterval,
 		useCheckWindows:     useCheckWindows,
+		now:                 time.Now,
 	}
 
 	if err := svc.loadLocationMap(ctx); err != nil {
@@ -226,26 +389,33 @@ func (s *Service) refreshLocationMapLoop(ctx context.Context, stopCh <-chan stru
 
 // run executes the main fetch loop, polling Planning Center for checkouts on
 // the configured interval until it stops.
+//
+// The polling cadence is measured from the start of each iteration, not its
+// completion: the loop start is recorded before the work runs, so the blocking
+// select below sleeps only until interval has elapsed since the iteration
+// began. If an iteration's work itself takes longer than the interval, the
+// pause is clamped to a minimum gap of interval/2 so the loop does not
+// busy-loop back-to-back with no pause against the DB and API; the worker
+// semaphore and per-event mutexes still bound overlap, so two iterations never
+// run concurrently.
+//
+// Shutdown conditions are checked in two places: once before the loop body (so
+// a shutdown that happened while the loop slept or processed is acted on
+// immediately instead of scheduling another round of work) and once in the
+// blocking select at the end of each iteration. The pre-loop check is a single
+// non-blocking probe; it is not duplicate logic, it only avoids starting work
+// we know is about to be abandoned.
 func (s *Service) run(ctx context.Context, stopCh, forceExitCh <-chan struct{}, interval time.Duration) error {
 	for {
-		select {
-		case <-forceExitCh:
-			logger.FromContext(ctx).ErrorContext(ctx, "graceful shutdown did not complete within the grace period, forcing exit", slog.Duration("grace_period", shutdownGracePeriod))
-			return fmt.Errorf("graceful shutdown did not complete within %s", shutdownGracePeriod)
-		default:
-		}
-
-		select {
-		case <-stopCh:
-			return nil
-		default:
-		}
-
-		if ctx.Err() != nil {
+		if ctx.Err() != nil || isClosed(stopCh) {
 			return nil
 		}
 
 		logger.FromContext(ctx).InfoContext(ctx, "checking for events that need updating")
+
+		// Record the loop start so the cadence is measured from the start of the
+		// iteration rather than its completion.
+		loopStart := s.now()
 
 		err := s.eventCheckoutLoop(ctx, stopCh)
 		if err != nil {
@@ -255,16 +425,48 @@ func (s *Service) run(ctx context.Context, stopCh, forceExitCh <-chan struct{}, 
 			return fmt.Errorf("failed to eventCheckoutLoop: %w", err)
 		}
 
+		// The cadence is measured from loop start: the pause is the remainder
+		// of the interval that had not elapsed when the work finished. If the
+		// work itself took longer than the interval, the remainder is zero or
+		// negative; clamp a minimum gap in that case so a slow cycle does not
+		// busy-loop back-to-back with no pause against the DB and API.
+		gap := interval - s.now().Sub(loopStart)
+		if gap <= 0 {
+			gap = interval / 2
+		}
+		timer := time.NewTimer(gap)
+
 		select {
 		case <-forceExitCh:
-			logger.FromContext(ctx).ErrorContext(ctx, "graceful shutdown did not complete within the grace period, forcing exit", slog.Duration("grace_period", shutdownGracePeriod))
-			return fmt.Errorf("graceful shutdown did not complete within %s", shutdownGracePeriod)
+			timer.Stop()
+			return forceExit(ctx)
 		case <-stopCh:
+			timer.Stop()
 			return nil
 		case <-ctx.Done():
+			timer.Stop()
 			return nil
-		case <-time.After(interval):
+		case <-timer.C:
 		}
+		timer.Stop()
+	}
+}
+
+// forceExit reports that the graceful drain did not complete within the grace
+// period. It is the single place that formats the forced-exit error, so the
+// message and log stay consistent across the shutdown paths that use it.
+func forceExit(ctx context.Context) error {
+	logger.FromContext(ctx).ErrorContext(ctx, "graceful shutdown did not complete within the grace period, forcing exit", slog.Duration("grace_period", shutdownGracePeriod))
+	return fmt.Errorf("graceful shutdown did not complete within %s", shutdownGracePeriod)
+}
+
+// isClosed reports whether ch has been closed.
+func isClosed(ch <-chan struct{}) bool {
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -300,6 +502,8 @@ func (s *Service) eventCheckoutLoop(ctx context.Context, stopCh <-chan struct{})
 		return fmt.Errorf("failed to list events: %w", err)
 	}
 
+	now := s.now()
+
 	windowsByEvent := make(map[int64][]eventcheckwindow.EventCheckWindow)
 	var active map[int64]bool
 	if s.useCheckWindows {
@@ -312,12 +516,11 @@ func (s *Service) eventCheckoutLoop(ctx context.Context, stopCh <-chan struct{})
 			windowsByEvent[w.EventID] = append(windowsByEvent[w.EventID], w)
 		}
 
-		active = activeEventIDs(windowsByEvent)
+		active = activeEventIDs(windowsByEvent, now)
 	}
 
 	var eventsToUpdate []event.Event
 	skippedOutsideWindow := 0
-	now := time.Now()
 	for _, ev := range events {
 		if s.useCheckWindows {
 			if _, hasWindows := windowsByEvent[ev.ID]; hasWindows && !active[ev.ID] {
@@ -326,6 +529,9 @@ func (s *Service) eventCheckoutLoop(ctx context.Context, stopCh <-chan struct{})
 			}
 		}
 		if ev.LastCheckedOutTime.IsZero() || now.Sub(ev.LastCheckedOutTime) >= s.eventUpdateInterval {
+			if s.inRetryBackoff(ev.ID, now) {
+				continue
+			}
 			eventsToUpdate = append(eventsToUpdate, ev)
 		}
 	}
@@ -342,11 +548,14 @@ func (s *Service) eventCheckoutLoop(ctx context.Context, stopCh <-chan struct{})
 	logger.FromContext(ctx).InfoContext(ctx, "processing events that need updating", slog.Int("total_events", len(events)), slog.Int("events_to_update", len(eventsToUpdate)))
 
 	var (
-		wg       sync.WaitGroup
-		errs     []error
-		timeouts int
-		errMu    sync.Mutex
-		sem      = make(chan struct{}, 5)
+		wg             sync.WaitGroup
+		errs           []error
+		timeouts       int
+		createFailures int
+		fetchFailures  int
+		droppedEvents  int
+		errMu          sync.Mutex
+		sem            = make(chan struct{}, 5)
 	)
 
 loop:
@@ -364,11 +573,18 @@ loop:
 			go func(ev event.Event) {
 				defer wg.Done()
 				defer func() { <-sem }()
-				if err := s.processEventCheckouts(ctx, ev); err != nil {
+				if err := s.processEventCheckouts(ctx, ev, now); err != nil {
 					errMu.Lock()
-					if isEventTimeout(err) {
+					switch {
+					case isEventTimeout(err):
 						timeouts++
-					} else {
+					case isEventCheckinFailure(err):
+						createFailures++
+					case isEventFetchFailure(err):
+						fetchFailures++
+					case isEventDropped(err):
+						droppedEvents++
+					default:
 						errs = append(errs, err)
 					}
 					errMu.Unlock()
@@ -383,6 +599,18 @@ loop:
 		logger.FromContext(ctx).WarnContext(ctx, "checkout fetch timed out for some events; will retry next cycle", slog.Int("timeout_count", timeouts))
 	}
 
+	if createFailures > 0 {
+		logger.FromContext(ctx).WarnContext(ctx, "failed to create checkins for some events; will retry next cycle", slog.Int("failed_event_count", createFailures))
+	}
+
+	if fetchFailures > 0 {
+		logger.FromContext(ctx).WarnContext(ctx, "pagination limit exceeded for some events; will retry next cycle", slog.Int("failed_event_count", fetchFailures))
+	}
+
+	if droppedEvents > 0 {
+		logger.FromContext(ctx).WarnContext(ctx, "dropped checkouts for some events; will retry next cycle", slog.Int("dropped_event_count", droppedEvents))
+	}
+
 	if len(errs) > 0 {
 		return errors.Join(errs...)
 	}
@@ -390,16 +618,75 @@ loop:
 	return nil
 }
 
-func getEventMutex(m *sync.Map, eventID int64) *sync.Mutex {
-	mu, _ := m.LoadOrStore(eventID, &sync.Mutex{})
-	return mu.(*sync.Mutex)
-}
-
+// getEventMutex returns the striped lock guarding the given event. Using
+// uint64 for the modulo avoids a negative index if eventID is ever negative.
 func (s *Service) getEventMutex(eventID int64) *sync.Mutex {
-	return getEventMutex(&s.eventMutexes, eventID)
+	return &s.eventMutexStripes[uint64(eventID)%uint64(len(s.eventMutexStripes))]
 }
 
-func (s *Service) processEventCheckouts(ctx context.Context, ev event.Event) error {
+// recordRetryFailure marks ev as having failed to fully resolve this cycle and
+// puts it in backoff for an exponentially growing delay, doubling per
+// consecutive failure. Once an event has failed retryEscalationThreshold
+// consecutive cycles it is logged at ERROR severity, because each further
+// failure brings the unresolved checkouts closer to aging out of the lookback
+// window (see processEventCheckouts).
+func (s *Service) recordRetryFailure(ctx context.Context, eventID int64, now time.Time, failedIDs []string) {
+	s.retryMu.Lock()
+	defer s.retryMu.Unlock()
+
+	if s.eventRetries == nil {
+		s.eventRetries = make(map[int64]retryState)
+	}
+
+	st := s.eventRetries[eventID]
+	st.consecutiveFailures++
+
+	shift := st.consecutiveFailures - 1
+	if shift > 8 {
+		shift = 8
+	}
+	delay := retryBackoffBase << shift
+	if delay > retryBackoffMax {
+		delay = retryBackoffMax
+	}
+	st.backoffUntil = now.Add(delay)
+	s.eventRetries[eventID] = st
+
+	if st.consecutiveFailures >= retryEscalationThreshold {
+		// This is the escalation tripwire for log-based monitoring. Alert on
+		// alert_name=event-checkouts-escalation: an event has failed
+		// retryEscalationThreshold consecutive cycles, so its unresolved
+		// checkouts are at risk of aging out of the lookback window (see
+		// processEventCheckouts) and being permanently lost.
+		logger.FromContext(ctx).ErrorContext(ctx,
+			"event failed to resolve for consecutive cycles; checkouts may age out of the lookback window",
+			slog.Int64("event_id", eventID),
+			slog.Int("consecutive_failures", st.consecutiveFailures),
+			slog.Int("failed_count", len(failedIDs)),
+			slog.Bool("alert", true),
+			slog.String("alert_name", "event-checkouts-escalation"),
+		)
+	}
+}
+
+// resetRetryState clears ev's retry state after a fully successful cycle, so
+// an event that resolves does not carry prior failures toward escalation.
+func (s *Service) resetRetryState(eventID int64) {
+	s.retryMu.Lock()
+	defer s.retryMu.Unlock()
+	delete(s.eventRetries, eventID)
+}
+
+// inRetryBackoff reports whether ev is currently backed off and should not be
+// selected for processing.
+func (s *Service) inRetryBackoff(eventID int64, now time.Time) bool {
+	s.retryMu.Lock()
+	defer s.retryMu.Unlock()
+	st, ok := s.eventRetries[eventID]
+	return ok && st.backoffUntil.After(now)
+}
+
+func (s *Service) processEventCheckouts(ctx context.Context, ev event.Event, now time.Time) error {
 	mu := s.getEventMutex(ev.ID)
 	mu.Lock()
 	defer mu.Unlock()
@@ -410,8 +697,8 @@ func (s *Service) processEventCheckouts(ctx context.Context, ev event.Event) err
 	}
 
 	timeToUse := currentEvent.LastCheckedOutTime
-	if timeToUse.Before(time.Now().Add(getLookBackTime())) {
-		timeToUse = time.Now().Add(getLookBackTime())
+	if timeToUse.Before(now.Add(getLookBackTime())) {
+		timeToUse = now.Add(getLookBackTime())
 	}
 
 	checkouts, err := s.pcClient.GetCheckoutsForEvent(ctx, currentEvent.PlanningCenterID, timeToUse, 0)
@@ -419,23 +706,49 @@ func (s *Service) processEventCheckouts(ctx context.Context, ev event.Event) err
 	if err != nil {
 		var timeoutErr *planningcenter.TimeoutError
 		if errors.As(err, &timeoutErr) {
-			logger.FromContext(ctx).WarnContext(ctx, "timeout fetching checkouts for event", slog.String("event_id", currentEvent.PlanningCenterID), slog.String("error", err.Error()), slog.Any("err", err))
+			logger.FromContext(ctx).WarnContext(ctx, "timeout fetching checkouts for event", slog.String("event_id", currentEvent.PlanningCenterID), slog.String("error", err.Error()))
+			s.recordRetryFailure(ctx, currentEvent.ID, now, nil)
 			return errEventTimeout{eventID: currentEvent.PlanningCenterID, err: err}
+		}
+		if errors.Is(err, planningcenter.ErrPaginationLimitExceeded) {
+			logger.FromContext(ctx).WarnContext(ctx, "pagination limit exceeded fetching checkouts for event", slog.String("event_id", currentEvent.PlanningCenterID))
+			s.recordRetryFailure(ctx, currentEvent.ID, now, nil)
+			return errEventFetchFailure{eventID: currentEvent.PlanningCenterID, err: err}
 		}
 		return fmt.Errorf("failed to fetch checkouts for event %s: %w", currentEvent.PlanningCenterID, err)
 	}
 	logger.FromContext(ctx).InfoContext(ctx, "fetched checkouts for event", slog.String("event_id", currentEvent.PlanningCenterID), slog.Int("checkouts_count", len(checkouts)))
 
+	var (
+		dropped    int
+		droppedIDs []string
+		batchErrs  []error
+		failedIDs  []string
+	)
 	for _, checkout := range checkouts {
 		locationIDA, found := s.locationIDMap.Load(checkout.PlanningCenterLocationID)
 		if !found {
+			dropped++
+			droppedIDs = append(droppedIDs, checkout.ID)
 			logger.FromContext(ctx).ErrorContext(ctx, "could not find location by planning center id in map", "checkout_pc_id", checkout.PlanningCenterLocationID)
+			continue
+		}
+
+		locID, ok := locationIDA.(int64)
+		if !ok {
+			dropped++
+			droppedIDs = append(droppedIDs, checkout.ID)
+			logger.FromContext(ctx).ErrorContext(ctx,
+				"unexpected location id type in map",
+				slog.String("checkout_pc_id", checkout.PlanningCenterLocationID),
+				slog.Any("type", fmt.Sprintf("%T", locationIDA)),
+			)
 			continue
 		}
 
 		co := checkin.Checkin{
 			PlanningCenterID: checkout.ID,
-			LocationID:       locationIDA.(int64),
+			LocationID:       locID,
 			EventID:          currentEvent.ID,
 			FirstName:        checkout.FirstName,
 			LastName:         checkout.LastName,
@@ -443,13 +756,58 @@ func (s *Service) processEventCheckouts(ctx context.Context, ev event.Event) err
 			CheckedOutAt:     checkout.CheckedOutAt,
 		}
 
-		co, err := s.checkinRepo.CreateCheckin(ctx, co)
-		if err != nil {
-			return fmt.Errorf("failed to create checkin for event %s: %w", currentEvent.PlanningCenterID, err)
+		if _, err := s.checkinRepo.CreateCheckin(ctx, co); err != nil {
+			batchErrs = append(batchErrs, fmt.Errorf("create checkin %s for event %s: %w", co.PlanningCenterID, currentEvent.PlanningCenterID, err))
+			failedIDs = append(failedIDs, co.PlanningCenterID)
+			continue
 		}
 	}
 
-	newLastCheckedOut := time.Now().UTC()
+	// If some checkouts could not be created, do not advance LastCheckedOutTime.
+	// Advancing the window would permanently lose the failed rows, since the
+	// next cycle queries Planning Center for checkouts after the new timestamp
+	// and never re-reads them. The non-fatal errEventCheckinFailure keeps the
+	// loop running so the event is retried; checkouts already inserted are
+	// idempotent upserts. The retry guarantee only holds while the failed rows
+	// remain inside the trailing lookback window (default 12h): if the worker
+	// is down for longer than the lookback between a failed attempt and its
+	// retry, the rows fall out of the fetch range and are permanently lost.
+	if len(batchErrs) > 0 {
+		logger.FromContext(ctx).WarnContext(ctx,
+			"failed to create some checkins; not advancing LastCheckedOutTime so they are retried",
+			slog.String("event_id", currentEvent.PlanningCenterID),
+			slog.Int("failed_count", len(batchErrs)),
+		)
+		s.recordRetryFailure(ctx, currentEvent.ID, now, failedIDs)
+		return errEventCheckinFailure{eventID: currentEvent.PlanningCenterID, errs: batchErrs}
+	}
+
+	// If any checkouts were dropped because their location could not be
+	// resolved, do not advance LastCheckedOutTime. Advancing the window would
+	// permanently lose those checkouts, since the next cycle queries Planning
+	// Center for checkouts after the new timestamp and never re-reads them.
+	// Keeping the window in place retries the event; checkouts already inserted
+	// are idempotent upserts. The retry guarantee only holds while the dropped
+	// rows remain inside the trailing lookback window (default 12h): if the
+	// worker is down for longer than the lookback between a failed attempt and
+	// its retry, the rows fall out of the fetch range and are permanently lost.
+	if dropped > 0 {
+		logger.FromContext(ctx).WarnContext(ctx,
+			"dropped checkouts for event; not advancing LastCheckedOutTime so they are retried",
+			slog.String("event_id", currentEvent.PlanningCenterID),
+			slog.Int("dropped_count", dropped),
+		)
+		s.recordRetryFailure(ctx, currentEvent.ID, now, droppedIDs)
+		return errEventDropped{eventID: currentEvent.PlanningCenterID, droppedCount: dropped}
+	}
+
+	// LastCheckedOutTime is stamped with the cycle-start time (captured once in
+	// eventCheckoutLoop), not the actual processing-completion time. For a
+	// long-running cycle this stamps the window slightly in the past, causing a
+	// redundant re-fetch of already-created checkouts next cycle. Acceptable:
+	// the re-created rows are idempotent upserts, so no data is lost or
+	// duplicated.
+	newLastCheckedOut := now.UTC()
 	updatedEvent := event.Event{
 		ID:                 currentEvent.ID,
 		Name:               currentEvent.Name,
@@ -463,6 +821,8 @@ func (s *Service) processEventCheckouts(ctx context.Context, ev event.Event) err
 	if err != nil {
 		return fmt.Errorf("failed to update event %d: %w", currentEvent.ID, err)
 	}
+
+	s.resetRetryState(currentEvent.ID)
 
 	return nil
 }
@@ -478,14 +838,10 @@ type Window struct {
 	EndMinutes   int
 }
 
-// nowFunc is the time source used by the check-window helpers; overridable in
-// tests.
-var nowFunc = time.Now
-
 // minutesSinceWeekStartUTC returns how many minutes have elapsed since Monday
-// 00:00:00 UTC of the current week.
-func minutesSinceWeekStartUTC() int {
-	now := nowFunc().UTC()
+// 00:00:00 UTC of the week containing now.
+func minutesSinceWeekStartUTC(now time.Time) int {
+	now = now.UTC()
 	weekday := int(now.Weekday())
 	if weekday == 0 {
 		weekday = 7
@@ -522,15 +878,14 @@ func parseTime(timeStr string) (hour, minute int, err error) {
 }
 
 // localToUTCWeekMinutes converts a local (day of week, hour, minute, timezone)
-// to minutes since Monday 00:00 UTC, anchored to the week that nowFunc() falls
-// in.
-func localToUTCWeekMinutes(dayOfWeek, hour, minute int, timezone string) (int, error) {
+// to minutes since Monday 00:00 UTC, anchored to the week that now falls in.
+func localToUTCWeekMinutes(dayOfWeek, hour, minute int, timezone string, now time.Time) (int, error) {
 	loc, err := time.LoadLocation(timezone)
 	if err != nil {
 		return 0, fmt.Errorf("invalid timezone %q: %w", timezone, err)
 	}
 
-	now := nowFunc().In(loc)
+	now = now.In(loc)
 
 	utcNow := now.UTC()
 	utcWeekday := int(utcNow.Weekday())
@@ -558,8 +913,8 @@ func localToUTCWeekMinutes(dayOfWeek, hour, minute int, timezone string) (int, e
 
 // mergeWindows converts check windows into merged UTC week-minute ranges,
 // splitting windows that cross the Sunday/Saturday boundary into two ranges
-// and coalescing overlaps.
-func mergeWindows(checkWindows []eventcheckwindow.EventCheckWindow) ([]Window, error) {
+// and coalescing overlaps. now anchors which week the windows map to.
+func mergeWindows(checkWindows []eventcheckwindow.EventCheckWindow, now time.Time) ([]Window, error) {
 	var ranges []Window
 
 	for _, ct := range checkWindows {
@@ -572,11 +927,11 @@ func mergeWindows(checkWindows []eventcheckwindow.EventCheckWindow) ([]Window, e
 			return nil, fmt.Errorf("parse end time: %w", err)
 		}
 
-		startMinutes, err := localToUTCWeekMinutes(ct.StartDayOfWeek, startH, startM, ct.Timezone)
+		startMinutes, err := localToUTCWeekMinutes(ct.StartDayOfWeek, startH, startM, ct.Timezone, now)
 		if err != nil {
 			return nil, fmt.Errorf("start time timezone: %w", err)
 		}
-		endMinutes, err := localToUTCWeekMinutes(ct.EndDayOfWeek, endH, endM, ct.Timezone)
+		endMinutes, err := localToUTCWeekMinutes(ct.EndDayOfWeek, endH, endM, ct.Timezone, now)
 		if err != nil {
 			return nil, fmt.Errorf("end time timezone: %w", err)
 		}
@@ -610,13 +965,13 @@ func mergeWindows(checkWindows []eventcheckwindow.EventCheckWindow) ([]Window, e
 }
 
 // activeEventIDs returns the set of event IDs whose merged check windows cover
-// the current time. Events with no windows are not included.
-func activeEventIDs(windowsByEvent map[int64][]eventcheckwindow.EventCheckWindow) map[int64]bool {
+// the time now. Events with no windows are not included.
+func activeEventIDs(windowsByEvent map[int64][]eventcheckwindow.EventCheckWindow, now time.Time) map[int64]bool {
 	active := make(map[int64]bool, len(windowsByEvent))
-	nowMinutes := minutesSinceWeekStartUTC()
+	nowMinutes := minutesSinceWeekStartUTC(now)
 
 	for eventID, eventWindows := range windowsByEvent {
-		merged, err := mergeWindows(eventWindows)
+		merged, err := mergeWindows(eventWindows, now)
 		if err != nil {
 			slog.Warn("could not merge check windows for event", slog.Int64("event_id", eventID), slog.String("error", err.Error()))
 			continue

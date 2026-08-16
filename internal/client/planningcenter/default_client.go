@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -22,6 +23,14 @@ type defaultClient struct {
 	clientID   string
 	secret     string
 }
+
+// maxCheckoutPagesPerEvent is the defensive upper bound on how many pages of
+// check_ins the client will follow for a single event before giving up. The
+// Planning Center API terminates pagination with an empty "next" link, so this
+// cap should never be reached in practice; it exists only to guard against a
+// pathological API response that never terminates. Reaching it returns
+// ErrPaginationLimitExceeded rather than silently truncating checkouts.
+const maxCheckoutPagesPerEvent = 100
 
 func (client *defaultClient) GetLocationsForEvent(ctx context.Context, eventID string) ([]Location, error) {
 	getURL, err := url.JoinPath(client.baseURL, "check-ins", "v2", "events", eventID, "locations")
@@ -190,8 +199,8 @@ func (client *defaultClient) GetCheckoutsForEvent(ctx context.Context, eventID s
 
 	for {
 		iterations++
-		if iterations >= 10 {
-			break
+		if iterations > maxCheckoutPagesPerEvent {
+			return nil, fmt.Errorf("get checkouts for event %s: %w", eventID, ErrPaginationLimitExceeded)
 		}
 		err := func() error {
 			if ctx.Err() != nil {

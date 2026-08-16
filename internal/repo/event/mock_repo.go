@@ -1,26 +1,29 @@
 package event
 
-import "context"
+import (
+	"context"
+	"sync/atomic"
+)
 
 type MockRepo struct {
 	GetEventByIDFunc          func(ctx context.Context, id int64) (Event, error)
-	GetEventByIDFuncCallCount int
+	GetEventByIDFuncCallCount atomic.Int64
 
 	GetEventByPlanningCenterIDFunc          func(ctx context.Context, planningCenterID string) (Event, error)
-	GetEventByPlanningCenterIDFuncCallCount int
+	GetEventByPlanningCenterIDFuncCallCount atomic.Int64
 
 	ListEventsFunc          func(ctx context.Context, filter EventFilter) ([]Event, error)
-	ListEventsFuncCallCount int
+	ListEventsFuncCallCount atomic.Int64
 
 	CreateEventFunc          func(ctx context.Context, event Event) (Event, error)
-	CreateEventFuncCallCount int
+	CreateEventFuncCallCount atomic.Int64
 
 	UpdateEventFunc          func(ctx context.Context, event Event) error
-	UpdateEventFuncCallCount int
+	UpdateEventFuncCallCount atomic.Int64
 }
 
 func (repo *MockRepo) GetEventByID(ctx context.Context, id int64) (Event, error) {
-	repo.GetEventByIDFuncCallCount++
+	repo.GetEventByIDFuncCallCount.Add(1)
 	if repo.GetEventByIDFunc != nil {
 		return repo.GetEventByIDFunc(ctx, id)
 	}
@@ -29,7 +32,7 @@ func (repo *MockRepo) GetEventByID(ctx context.Context, id int64) (Event, error)
 }
 
 func (repo *MockRepo) CreateEvent(ctx context.Context, event Event) (Event, error) {
-	repo.CreateEventFuncCallCount++
+	repo.CreateEventFuncCallCount.Add(1)
 	if repo.CreateEventFunc != nil {
 		return repo.CreateEventFunc(ctx, event)
 	}
@@ -38,7 +41,7 @@ func (repo *MockRepo) CreateEvent(ctx context.Context, event Event) (Event, erro
 }
 
 func (repo *MockRepo) UpdateEvent(ctx context.Context, event Event) error {
-	repo.UpdateEventFuncCallCount++
+	repo.UpdateEventFuncCallCount.Add(1)
 	if repo.UpdateEventFunc != nil {
 		return repo.UpdateEventFunc(ctx, event)
 	}
@@ -47,7 +50,7 @@ func (repo *MockRepo) UpdateEvent(ctx context.Context, event Event) error {
 }
 
 func (repo *MockRepo) GetEventByPlanningCenterID(ctx context.Context, planningCenterID string) (Event, error) {
-	repo.GetEventByPlanningCenterIDFuncCallCount++
+	repo.GetEventByPlanningCenterIDFuncCallCount.Add(1)
 	if repo.GetEventByPlanningCenterIDFunc != nil {
 		return repo.GetEventByPlanningCenterIDFunc(ctx, planningCenterID)
 	}
@@ -56,7 +59,7 @@ func (repo *MockRepo) GetEventByPlanningCenterID(ctx context.Context, planningCe
 }
 
 func (repo *MockRepo) ListEvents(ctx context.Context, filter EventFilter) ([]Event, error) {
-	repo.ListEventsFuncCallCount++
+	repo.ListEventsFuncCallCount.Add(1)
 	if repo.ListEventsFunc != nil {
 		return repo.ListEventsFunc(ctx, filter)
 	}

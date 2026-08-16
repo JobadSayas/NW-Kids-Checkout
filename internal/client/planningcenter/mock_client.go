@@ -2,31 +2,32 @@ package planningcenter
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 )
 
 type MockClient struct {
 	GetCheckoutsForEventFunc          func(ctx context.Context, eventID string, checkedOutOnOrAfter time.Time, limit int) ([]Checkout, error)
-	GetCheckoutsForEventFuncCallCount uint
+	GetCheckoutsForEventFuncCallCount atomic.Uint64
 
 	GetLocationFunc          func(ctx context.Context, locationID string, includeAssociatedLocations bool) ([]Location, error)
-	GetLocationFuncCallCount uint
+	GetLocationFuncCallCount atomic.Uint64
 
 	GetLocationsForEventFunc          func(ctx context.Context, eventID string) ([]Location, error)
-	GetLocationsForEventFuncCallCount uint
+	GetLocationsForEventFuncCallCount atomic.Uint64
 
 	GetEventByIDFunc          func(ctx context.Context, eventID string) (Event, error)
-	GetEventByIDFuncCallCount uint
+	GetEventByIDFuncCallCount atomic.Uint64
 
 	GetEventsFunc          func(ctx context.Context) ([]Event, string, error)
-	GetEventsFuncCallCount uint
+	GetEventsFuncCallCount atomic.Uint64
 
 	GetEventsFromNextURLFunc          func(ctx context.Context, nextURL string) ([]Event, string, error)
-	GetEventsFromNextURLFuncCallCount uint
+	GetEventsFromNextURLFuncCallCount atomic.Uint64
 }
 
 func (client *MockClient) GetLocationsForEvent(ctx context.Context, eventID string) ([]Location, error) {
-	client.GetLocationsForEventFuncCallCount++
+	client.GetLocationsForEventFuncCallCount.Add(1)
 	if client.GetLocationsForEventFunc != nil {
 		return client.GetLocationsForEventFunc(ctx, eventID)
 	}
@@ -35,7 +36,7 @@ func (client *MockClient) GetLocationsForEvent(ctx context.Context, eventID stri
 }
 
 func (client *MockClient) GetEventByID(ctx context.Context, eventID string) (Event, error) {
-	client.GetEventByIDFuncCallCount++
+	client.GetEventByIDFuncCallCount.Add(1)
 	if client.GetEventByIDFunc != nil {
 		return client.GetEventByIDFunc(ctx, eventID)
 	}
@@ -44,7 +45,7 @@ func (client *MockClient) GetEventByID(ctx context.Context, eventID string) (Eve
 }
 
 func (client *MockClient) GetCheckoutsForEvent(ctx context.Context, eventID string, checkedOutOnOrAfter time.Time, limit int) ([]Checkout, error) {
-	client.GetCheckoutsForEventFuncCallCount++
+	client.GetCheckoutsForEventFuncCallCount.Add(1)
 	if client.GetCheckoutsForEventFunc != nil {
 		return client.GetCheckoutsForEventFunc(ctx, eventID, checkedOutOnOrAfter, limit)
 	}
@@ -53,7 +54,7 @@ func (client *MockClient) GetCheckoutsForEvent(ctx context.Context, eventID stri
 }
 
 func (client *MockClient) GetLocation(ctx context.Context, locationID string, includeAssociatedLocations bool) ([]Location, error) {
-	client.GetLocationFuncCallCount++
+	client.GetLocationFuncCallCount.Add(1)
 	if client.GetLocationFunc != nil {
 		return client.GetLocationFunc(ctx, locationID, includeAssociatedLocations)
 	}
@@ -62,7 +63,7 @@ func (client *MockClient) GetLocation(ctx context.Context, locationID string, in
 }
 
 func (client *MockClient) GetEvents(ctx context.Context) ([]Event, string, error) {
-	client.GetEventsFuncCallCount++
+	client.GetEventsFuncCallCount.Add(1)
 	if client.GetEventsFunc != nil {
 		return client.GetEventsFunc(ctx)
 	}
@@ -71,7 +72,7 @@ func (client *MockClient) GetEvents(ctx context.Context) ([]Event, string, error
 }
 
 func (client *MockClient) GetEventsFromNextURL(ctx context.Context, nextURL string) ([]Event, string, error) {
-	client.GetEventsFromNextURLFuncCallCount++
+	client.GetEventsFromNextURLFuncCallCount.Add(1)
 	if client.GetEventsFromNextURLFunc != nil {
 		return client.GetEventsFromNextURLFunc(ctx, nextURL)
 	}

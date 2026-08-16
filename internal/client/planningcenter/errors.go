@@ -1,6 +1,9 @@
 package planningcenter
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 type ServerError struct {
 	statusCode int
@@ -27,3 +30,10 @@ type TimeoutError struct {
 func (e *TimeoutError) Error() string {
 	return "timeout: " + e.Err.Error()
 }
+
+// ErrPaginationLimitExceeded is returned by GetCheckoutsForEvent when the
+// Planning Center API does not terminate pagination within
+// maxCheckoutPagesPerEvent pages. It is a distinguishable sentinel so callers
+// can treat truncation as a failure (e.g. not advancing the event window)
+// rather than silently losing checkouts.
+var ErrPaginationLimitExceeded = errors.New("pagination limit exceeded")

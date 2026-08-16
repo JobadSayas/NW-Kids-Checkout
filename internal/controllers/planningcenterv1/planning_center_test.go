@@ -92,7 +92,7 @@ func TestController_GetEvents_WithCursor(t *testing.T) {
 	assert.Equal(t, "evt-2", payload.Events[0].ID)
 	assert.Equal(t, "Second", payload.Events[0].Name)
 	assert.Empty(t, payload.Links.Next)
-	assert.Equal(t, uint(1), mockClient.GetEventsFromNextURLFuncCallCount)
+	assert.Equal(t, uint64(1), mockClient.GetEventsFromNextURLFuncCallCount.Load())
 }
 
 func TestController_GetEvents_NewCursor(t *testing.T) {
@@ -129,7 +129,7 @@ func TestController_GetEvents_NewCursor(t *testing.T) {
 	stored, getErr := paginationStore.Get(eventCursorPrefix + queryCursor)
 	require.NoError(t, getErr)
 	assert.Equal(t, nextURL, string(stored))
-	assert.Equal(t, uint(1), mockClient.GetEventsFuncCallCount)
+	assert.Equal(t, uint64(1), mockClient.GetEventsFuncCallCount.Load())
 }
 
 func TestController_GetEvents_InvalidCursor(t *testing.T) {

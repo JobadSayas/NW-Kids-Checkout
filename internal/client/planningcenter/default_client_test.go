@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -97,6 +99,82 @@ func Test_defaultClient_GetCheckoutsForEvent_Fake(t *testing.T) {
 	assert.Equal(t, "ABC123", checkouts[0].SecurityCode)
 	assert.Equal(t, checkedOutAt, checkouts[0].CheckedOutAt)
 	assert.Equal(t, int64(1), atomic.LoadInt64(&requestCount))
+}
+
+func Test_defaultClient_GetCheckoutsForEvent_paginatesBeyondLegacyTenPageCap(t *testing.T) {
+	const (
+		rowsPerPage = 25
+		totalPages  = 12 // > 10, the legacy silent cap, ~250 checkouts
+		totalRows   = rowsPerPage * totalPages
+	)
+	checkedOutAt := time.Now().UTC().Add(-5 * time.Minute).Round(time.Second)
+	var requestCount atomic.Int64
+
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		page := 1
+		if raw := r.URL.Query().Get("page"); raw != "" {
+			page, _ = strconv.Atoi(raw)
+		}
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		w.WriteHeader(http.StatusOK)
+
+		next := ""
+		if page < totalPages {
+			next = fmt.Sprintf("%s/check-ins/v2/events/evt-123/check_ins?page=%d", server.URL, page+1)
+		}
+
+		rows := make([]string, 0, rowsPerPage)
+		for i := 0; i < rowsPerPage; i++ {
+			rows = append(rows, fmt.Sprintf(`{"type":"check_in","id":"%d_%d","attributes":{"first_name":"Test","last_name":"User","security_code":"ABC123","checked_out_at":"%s"}}`,
+				page, i, checkedOutAt.Format(time.RFC3339)))
+		}
+
+		requestCount.Add(1)
+		_, _ = fmt.Fprintf(w, `{"links":{"self":"%s","next":%q},"data":[%s]}`,
+			server.URL+r.URL.Path, next, strings.Join(rows, ","))
+	}))
+	defer server.Close()
+
+	client := &defaultClient{
+		httpClient: server.Client(),
+		baseURL:    server.URL,
+		clientID:   "client",
+		secret:     "secret",
+	}
+
+	checkouts, err := client.GetCheckoutsForEvent(t.Context(), "evt-123", checkedOutAt.Add(-1*time.Hour), 0)
+	require.NoError(t, err)
+	require.Len(t, checkouts, totalRows, "checkouts beyond the first ten pages must not be silently dropped")
+	assert.Equal(t, int64(totalPages), requestCount.Load(), "every page must be fetched until the API's next link is empty")
+	assert.Equal(t, "1_0", checkouts[0].ID)
+	assert.Equal(t, "12_24", checkouts[len(checkouts)-1].ID, "the last row of the final page should be present")
+}
+
+func Test_defaultClient_GetCheckoutsForEvent_nonTerminatingPagination_returnsError(t *testing.T) {
+	checkedOutAt := time.Now().UTC().Add(-5 * time.Minute).Round(time.Second)
+
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		w.WriteHeader(http.StatusOK)
+
+		// next always points back at the same URL: the API never terminates.
+		_, _ = fmt.Fprintf(w, `{"links":{"next":"%s/check-ins/v2/events/evt-123/check_ins?page=1"},"data":[{"type":"check_in","id":"1_0","attributes":{"checked_out_at":"%s"}}]}`,
+			server.URL, checkedOutAt.Format(time.RFC3339))
+	}))
+	defer server.Close()
+
+	client := &defaultClient{
+		httpClient: server.Client(),
+		baseURL:    server.URL,
+		clientID:   "client",
+		secret:     "secret",
+	}
+
+	_, err := client.GetCheckoutsForEvent(t.Context(), "evt-123", checkedOutAt.Add(-1*time.Hour), 0)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrPaginationLimitExceeded, "truncation must be surfaced as an explicit error, not a silent return")
 }
 
 func Test_defaultClient_GetLocation_Real(t *testing.T) {

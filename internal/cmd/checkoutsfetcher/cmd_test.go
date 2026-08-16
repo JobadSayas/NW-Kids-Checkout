@@ -2,18 +2,25 @@ package checkoutsfetcher
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
 	"kids-checkin/internal/client/planningcenter"
+	"kids-checkin/internal/logger"
 	"kids-checkin/internal/repo/checkin"
 	"kids-checkin/internal/repo/event"
 	"kids-checkin/internal/repo/eventcheckwindow"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/urfave/cli/v3"
 )
 
 // noCheckWindows returns a window repo with no configured windows, so all
@@ -37,6 +44,7 @@ func testService(checkWindowRepo eventcheckwindow.Repo, eventRepo event.Repo, ch
 		locationIDMap:       locationIDMap,
 		eventUpdateInterval: eventUpdateInterval,
 		useCheckWindows:     useCheckWindows,
+		now:                 time.Now,
 	}
 }
 
@@ -134,11 +142,14 @@ func Test_eventCheckoutLoop_updatesEventsNeedingUpdate(t *testing.T) {
 		{ID: 2, PlanningCenterID: "evt_2", AutoFetch: true, LastCheckedOutTime: time.Now().Add(-10 * time.Minute)},
 	}
 
+	var eventsMu sync.Mutex
 	eventRepo := &event.MockRepo{
 		ListEventsFunc: func(ctx context.Context, filter event.EventFilter) ([]event.Event, error) {
 			return events, nil
 		},
 		GetEventByIDFunc: func(ctx context.Context, id int64) (event.Event, error) {
+			eventsMu.Lock()
+			defer eventsMu.Unlock()
 			for _, e := range events {
 				if e.ID == id {
 					return e, nil
@@ -147,6 +158,8 @@ func Test_eventCheckoutLoop_updatesEventsNeedingUpdate(t *testing.T) {
 			return event.Event{}, nil
 		},
 		UpdateEventFunc: func(ctx context.Context, ev event.Event) error {
+			eventsMu.Lock()
+			defer eventsMu.Unlock()
 			for i, e := range events {
 				if e.ID == ev.ID {
 					events[i] = ev
@@ -157,9 +170,12 @@ func Test_eventCheckoutLoop_updatesEventsNeedingUpdate(t *testing.T) {
 		},
 	}
 
+	var createdMu sync.Mutex
 	var createdCheckins []checkin.Checkin
 	checkinRepo := &checkin.MockRepo{
 		CreateCheckinFunc: func(ctx context.Context, c checkin.Checkin) (checkin.Checkin, error) {
+			createdMu.Lock()
+			defer createdMu.Unlock()
 			c.ID = int64(len(createdCheckins) + 1)
 			createdCheckins = append(createdCheckins, c)
 			return c, nil
@@ -238,7 +254,7 @@ func Test_processEventCheckouts_createsCheckinsAndUpdatesEvent(t *testing.T) {
 	locationIDMap.Store("pc_loc_1", int64(5))
 
 	svc := testService(noCheckWindows(), eventRepo, checkinRepo, pcClient, &locationIDMap, 0, false)
-	err := svc.processEventCheckouts(t.Context(), events[0])
+	err := svc.processEventCheckouts(t.Context(), events[0], svc.now())
 	require.NoError(t, err)
 
 	assert.Len(t, createdCheckins, 2)
@@ -269,9 +285,214 @@ func Test_processEventCheckouts_handlesFetchError(t *testing.T) {
 	locationIDMap.Store("pc_loc_1", int64(1))
 
 	svc := testService(noCheckWindows(), eventRepo, checkinRepo, pcClient, &locationIDMap, 0, false)
-	err := svc.processEventCheckouts(t.Context(), event.Event{ID: 1, PlanningCenterID: "evt_1"})
+	err := svc.processEventCheckouts(t.Context(), event.Event{ID: 1, PlanningCenterID: "evt_1"}, svc.now())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to fetch checkouts for event")
+}
+
+func Test_processEventCheckouts_paginationLimit_nonFatal(t *testing.T) {
+	events := []event.Event{
+		{ID: 1, PlanningCenterID: "evt_1", AutoFetch: true, LastCheckedOutTime: time.Time{}},
+	}
+
+	eventRepo := &event.MockRepo{
+		GetEventByIDFunc: func(ctx context.Context, id int64) (event.Event, error) {
+			return events[0], nil
+		},
+		UpdateEventFunc: func(ctx context.Context, ev event.Event) error {
+			events[0] = ev
+			return nil
+		},
+	}
+
+	checkinRepo := &checkin.MockRepo{}
+	pcClient := &planningcenter.MockClient{
+		GetCheckoutsForEventFunc: func(ctx context.Context, eventID string, checkedOutOnOrAfter time.Time, limit int) ([]planningcenter.Checkout, error) {
+			return nil, planningcenter.ErrPaginationLimitExceeded
+		},
+	}
+	locationIDMap := sync.Map{}
+	locationIDMap.Store("pc_loc_1", int64(1))
+
+	svc := testService(noCheckWindows(), eventRepo, checkinRepo, pcClient, &locationIDMap, 0, false)
+	err := svc.processEventCheckouts(t.Context(), events[0], svc.now())
+	require.Error(t, err)
+	assert.True(t, isEventFetchFailure(err), "pagination-limit truncation should be a non-fatal per-event failure")
+	assert.True(t, events[0].LastCheckedOutTime.IsZero(), "event should not advance LastCheckedOutTime on pagination-limit truncation")
+	assert.Zero(t, eventRepo.UpdateEventFuncCallCount.Load(), "event should not be marked checked out when pagination was truncated")
+}
+
+func Test_eventCheckoutLoop_paginationLimit_nonFatal(t *testing.T) {
+	events := []event.Event{
+		{ID: 1, PlanningCenterID: "evt_1", AutoFetch: true, LastCheckedOutTime: time.Time{}},
+	}
+
+	eventRepo := &event.MockRepo{
+		ListEventsFunc: func(ctx context.Context, filter event.EventFilter) ([]event.Event, error) {
+			return events, nil
+		},
+		GetEventByIDFunc: func(ctx context.Context, id int64) (event.Event, error) {
+			return events[0], nil
+		},
+		UpdateEventFunc: func(ctx context.Context, ev event.Event) error {
+			events[0] = ev
+			return nil
+		},
+	}
+
+	checkinRepo := &checkin.MockRepo{}
+	pcClient := &planningcenter.MockClient{
+		GetCheckoutsForEventFunc: func(ctx context.Context, eventID string, checkedOutOnOrAfter time.Time, limit int) ([]planningcenter.Checkout, error) {
+			return nil, planningcenter.ErrPaginationLimitExceeded
+		},
+	}
+	locationIDMap := sync.Map{}
+	locationIDMap.Store("pc_loc_1", int64(1))
+
+	err := testService(noCheckWindows(), eventRepo, checkinRepo, pcClient, &locationIDMap, 5*time.Minute, false).eventCheckoutLoop(t.Context(), nil)
+	require.NoError(t, err, "pagination-limit truncation should be non-fatal and not fail the loop batch")
+	assert.True(t, events[0].LastCheckedOutTime.IsZero(), "event with pagination-limit truncation should not advance LastCheckedOutTime")
+}
+
+func Test_eventCheckoutLoop_retryBackoff_skipsEventDuringBackoff(t *testing.T) {
+	events := []event.Event{
+		{ID: 1, PlanningCenterID: "evt_1", AutoFetch: true, LastCheckedOutTime: time.Time{}},
+	}
+
+	eventRepo := &event.MockRepo{
+		ListEventsFunc: func(ctx context.Context, filter event.EventFilter) ([]event.Event, error) {
+			return events, nil
+		},
+		GetEventByIDFunc: func(ctx context.Context, id int64) (event.Event, error) {
+			return events[0], nil
+		},
+		UpdateEventFunc: func(ctx context.Context, ev event.Event) error {
+			events[0] = ev
+			return nil
+		},
+	}
+
+	checkinRepo := &checkin.MockRepo{
+		CreateCheckinFunc: func(ctx context.Context, c checkin.Checkin) (checkin.Checkin, error) {
+			return c, nil
+		},
+	}
+
+	// The checkout's location is never resolvable, so every cycle drops it.
+	pcClient := &planningcenter.MockClient{
+		GetCheckoutsForEventFunc: func(ctx context.Context, eventID string, checkedOutOnOrAfter time.Time, limit int) ([]planningcenter.Checkout, error) {
+			return []planningcenter.Checkout{
+				{ID: "pc_checkout_1", PlanningCenterLocationID: "unknown_loc"},
+			}, nil
+		},
+	}
+
+	locationIDMap := sync.Map{}
+	locationIDMap.Store("pc_loc_1", int64(1))
+
+	cur := time.Now()
+	svc := testService(noCheckWindows(), eventRepo, checkinRepo, pcClient, &locationIDMap, time.Millisecond, false)
+	svc.now = func() time.Time { return cur }
+
+	require.NoError(t, svc.eventCheckoutLoop(t.Context(), nil))
+	require.Equal(t, int64(1), eventRepo.GetEventByIDFuncCallCount.Load(), "first cycle should process the event")
+
+	require.NoError(t, svc.eventCheckoutLoop(t.Context(), nil))
+	assert.Equal(t, int64(1), eventRepo.GetEventByIDFuncCallCount.Load(), "an event in retry backoff should be skipped until the backoff expires")
+
+	cur = cur.Add(10 * time.Minute)
+	require.NoError(t, svc.eventCheckoutLoop(t.Context(), nil))
+	assert.Equal(t, int64(2), eventRepo.GetEventByIDFuncCallCount.Load(), "an event should be reprocessed once its backoff expires")
+}
+
+func Test_processEventCheckouts_consecutiveFailures_escalatesToError(t *testing.T) {
+	events := []event.Event{
+		{ID: 1, PlanningCenterID: "evt_1", AutoFetch: true, LastCheckedOutTime: time.Time{}},
+	}
+
+	eventRepo := &event.MockRepo{
+		GetEventByIDFunc: func(ctx context.Context, id int64) (event.Event, error) {
+			return events[0], nil
+		},
+	}
+
+	checkinRepo := &checkin.MockRepo{}
+	pcClient := &planningcenter.MockClient{
+		GetCheckoutsForEventFunc: func(ctx context.Context, eventID string, checkedOutOnOrAfter time.Time, limit int) ([]planningcenter.Checkout, error) {
+			return []planningcenter.Checkout{
+				{ID: "pc_checkout_1", PlanningCenterLocationID: "unknown_loc"},
+			}, nil
+		},
+	}
+	locationIDMap := sync.Map{}
+	locationIDMap.Store("pc_loc_1", int64(1))
+
+	capture := &logger.CaptureSlogHandler{}
+	ctx := logger.WithLogger(t.Context(), slog.New(capture))
+
+	svc := testService(noCheckWindows(), eventRepo, checkinRepo, pcClient, &locationIDMap, 0, false)
+
+	for range retryEscalationThreshold - 1 {
+		require.True(t, isEventDropped(svc.processEventCheckouts(ctx, events[0], svc.now())), "dropped checkouts should surface as a non-fatal error")
+	}
+	assert.False(t, capture.ContainsError("consecutive"), "no escalation before the consecutive-failure threshold")
+	assert.False(t, capture.ContainsErrorAttr("alert_name", "event-checkouts-escalation"), "no alert field before the consecutive-failure threshold")
+
+	require.True(t, isEventDropped(svc.processEventCheckouts(ctx, events[0], svc.now())), "dropped checkouts should surface as a non-fatal error")
+	assert.True(t, capture.ContainsError("consecutive"), "an escalation ERROR should be logged once the threshold is crossed")
+	assert.True(t, capture.ContainsErrorAttr("alert_name", "event-checkouts-escalation"), "the escalation ERROR should carry the machine-alertable alert_name field")
+}
+
+func Test_processEventCheckouts_successResetsFailureCount(t *testing.T) {
+	events := []event.Event{
+		{ID: 1, PlanningCenterID: "evt_1", AutoFetch: true, LastCheckedOutTime: time.Time{}},
+	}
+
+	eventRepo := &event.MockRepo{
+		GetEventByIDFunc: func(ctx context.Context, id int64) (event.Event, error) {
+			return events[0], nil
+		},
+		UpdateEventFunc: func(ctx context.Context, ev event.Event) error {
+			events[0] = ev
+			return nil
+		},
+	}
+
+	checkinRepo := &checkin.MockRepo{
+		CreateCheckinFunc: func(ctx context.Context, c checkin.Checkin) (checkin.Checkin, error) {
+			return c, nil
+		},
+	}
+
+	resolvable := false
+	pcClient := &planningcenter.MockClient{
+		GetCheckoutsForEventFunc: func(ctx context.Context, eventID string, checkedOutOnOrAfter time.Time, limit int) ([]planningcenter.Checkout, error) {
+			loc := "unknown_loc"
+			if resolvable {
+				loc = "pc_loc_1"
+			}
+			return []planningcenter.Checkout{
+				{ID: "pc_checkout_1", PlanningCenterLocationID: loc},
+			}, nil
+		},
+	}
+	locationIDMap := sync.Map{}
+	locationIDMap.Store("pc_loc_1", int64(1))
+
+	capture := &logger.CaptureSlogHandler{}
+	ctx := logger.WithLogger(t.Context(), slog.New(capture))
+
+	svc := testService(noCheckWindows(), eventRepo, checkinRepo, pcClient, &locationIDMap, 0, false)
+
+	require.True(t, isEventDropped(svc.processEventCheckouts(ctx, events[0], svc.now())), "dropped checkouts should surface as a non-fatal error")
+	resolvable = true
+	require.NoError(t, svc.processEventCheckouts(ctx, events[0], svc.now()))
+	resolvable = false
+
+	for range retryEscalationThreshold - 1 {
+		require.True(t, isEventDropped(svc.processEventCheckouts(ctx, events[0], svc.now())), "dropped checkouts should surface as a non-fatal error")
+	}
+	assert.False(t, capture.ContainsError("consecutive"), "a success should reset the consecutive-failure counter so earlier failures do not count toward escalation")
 }
 
 func Test_eventCheckoutLoop_contextCancellation(t *testing.T) {
@@ -336,39 +557,27 @@ func Test_processEventCheckouts_unknownLocation(t *testing.T) {
 	locationIDMap.Store("pc_loc_1", int64(5))
 
 	svc := testService(noCheckWindows(), eventRepo, checkinRepo, pcClient, &locationIDMap, 0, false)
-	err := svc.processEventCheckouts(t.Context(), events[0])
-	require.NoError(t, err)
+	err := svc.processEventCheckouts(t.Context(), events[0], svc.now())
+	require.Error(t, err, "a dropped checkout should surface as a non-fatal error so the cycle summary can count it")
+	require.True(t, isEventDropped(err), "dropped checkouts should be distinguishable from other failures")
 
 	assert.Len(t, createdCheckins, 1, "should only create checkin for known location")
 	assert.Equal(t, "Known", createdCheckins[0].FirstName)
+	assert.Zero(t, eventRepo.UpdateEventFuncCallCount.Load(), "event should not be marked checked out when a checkout was dropped")
+	assert.True(t, events[0].LastCheckedOutTime.IsZero(), "LastCheckedOutTime should remain unchanged so the event is retried next cycle")
 }
 
-func Test_eventCheckoutLoop_concurrentEvents_sequentialProcessing(t *testing.T) {
+func Test_processEventCheckouts_unexpectedLocationType(t *testing.T) {
 	events := []event.Event{
 		{ID: 1, PlanningCenterID: "evt_1", AutoFetch: true, LastCheckedOutTime: time.Time{}},
-		{ID: 2, PlanningCenterID: "evt_2", AutoFetch: true, LastCheckedOutTime: time.Time{}},
-		{ID: 3, PlanningCenterID: "evt_3", AutoFetch: true, LastCheckedOutTime: time.Time{}},
 	}
 
 	eventRepo := &event.MockRepo{
-		ListEventsFunc: func(ctx context.Context, filter event.EventFilter) ([]event.Event, error) {
-			return events, nil
-		},
 		GetEventByIDFunc: func(ctx context.Context, id int64) (event.Event, error) {
-			for _, e := range events {
-				if e.ID == id {
-					return e, nil
-				}
-			}
-			return event.Event{}, nil
+			return events[0], nil
 		},
 		UpdateEventFunc: func(ctx context.Context, ev event.Event) error {
-			for i, e := range events {
-				if e.ID == ev.ID {
-					events[i] = ev
-					return nil
-				}
-			}
+			events[0] = ev
 			return nil
 		},
 	}
@@ -384,28 +593,162 @@ func Test_eventCheckoutLoop_concurrentEvents_sequentialProcessing(t *testing.T) 
 
 	pcClient := &planningcenter.MockClient{
 		GetCheckoutsForEventFunc: func(ctx context.Context, eventID string, checkedOutOnOrAfter time.Time, limit int) ([]planningcenter.Checkout, error) {
-			switch eventID {
-			case "evt_1":
-				return []planningcenter.Checkout{{ID: "c1", FirstName: "A", LastName: "A", SecurityCode: "AAA", PlanningCenterLocationID: "pc_loc_1"}}, nil
-			case "evt_2":
-				return []planningcenter.Checkout{{ID: "c2", FirstName: "B", LastName: "B", SecurityCode: "BBB", PlanningCenterLocationID: "pc_loc_1"}}, nil
-			case "evt_3":
-				return []planningcenter.Checkout{{ID: "c3", FirstName: "C", LastName: "C", SecurityCode: "CCC", PlanningCenterLocationID: "pc_loc_1"}}, nil
-			}
-			return nil, nil
+			return []planningcenter.Checkout{
+				{ID: "pc_checkout_bad_type", FirstName: "Bad", LastName: "Type", SecurityCode: "BADT", PlanningCenterLocationID: "pc_loc_bad"},
+				{ID: "pc_checkout_known", FirstName: "Known", LastName: "Person", SecurityCode: "KNOW", PlanningCenterLocationID: "pc_loc_1"},
+			}, nil
 		},
 	}
 
 	locationIDMap := sync.Map{}
-	locationIDMap.Store("pc_loc_1", int64(1))
+	locationIDMap.Store("pc_loc_bad", "not-an-int64")
+	locationIDMap.Store("pc_loc_1", int64(5))
 
-	err := testService(noCheckWindows(), eventRepo, checkinRepo, pcClient, &locationIDMap, 5*time.Minute, false).eventCheckoutLoop(t.Context(), nil)
+	svc := testService(noCheckWindows(), eventRepo, checkinRepo, pcClient, &locationIDMap, 0, false)
+	err := svc.processEventCheckouts(t.Context(), events[0], svc.now())
+	require.Error(t, err, "a dropped checkout should surface as a non-fatal error so the cycle summary can count it")
+	require.True(t, isEventDropped(err), "dropped checkouts should be distinguishable from other failures")
+
+	assert.Len(t, createdCheckins, 1, "checkout with non-int64 location id should be skipped, not panic")
+	assert.Equal(t, "Known", createdCheckins[0].FirstName)
+	assert.Zero(t, eventRepo.UpdateEventFuncCallCount.Load(), "event should not be marked checked out when a checkout was dropped")
+	assert.True(t, events[0].LastCheckedOutTime.IsZero(), "LastCheckedOutTime should remain unchanged so the event is retried next cycle")
+}
+
+func Test_processEventCheckouts_validBatch_advancesWindow(t *testing.T) {
+	events := []event.Event{
+		{ID: 1, PlanningCenterID: "evt_1", AutoFetch: true, LastCheckedOutTime: time.Time{}},
+	}
+
+	eventRepo := &event.MockRepo{
+		GetEventByIDFunc: func(ctx context.Context, id int64) (event.Event, error) {
+			return events[0], nil
+		},
+		UpdateEventFunc: func(ctx context.Context, ev event.Event) error {
+			events[0] = ev
+			return nil
+		},
+	}
+
+	var createdCheckins []checkin.Checkin
+	checkinRepo := &checkin.MockRepo{
+		CreateCheckinFunc: func(ctx context.Context, c checkin.Checkin) (checkin.Checkin, error) {
+			c.ID = int64(len(createdCheckins) + 1)
+			createdCheckins = append(createdCheckins, c)
+			return c, nil
+		},
+	}
+
+	pcClient := &planningcenter.MockClient{
+		GetCheckoutsForEventFunc: func(ctx context.Context, eventID string, checkedOutOnOrAfter time.Time, limit int) ([]planningcenter.Checkout, error) {
+			return []planningcenter.Checkout{
+				{ID: "pc_checkout_1", FirstName: "John", LastName: "Doe", SecurityCode: "ABCD", PlanningCenterLocationID: "pc_loc_1"},
+				{ID: "pc_checkout_2", FirstName: "Jane", LastName: "Smith", SecurityCode: "EFGH", PlanningCenterLocationID: "pc_loc_1"},
+			}, nil
+		},
+	}
+
+	locationIDMap := sync.Map{}
+	locationIDMap.Store("pc_loc_1", int64(5))
+
+	svc := testService(noCheckWindows(), eventRepo, checkinRepo, pcClient, &locationIDMap, 0, false)
+	err := svc.processEventCheckouts(t.Context(), events[0], svc.now())
 	require.NoError(t, err)
 
-	assert.Len(t, createdCheckins, 3)
-	for _, ev := range events {
-		assert.False(t, ev.LastCheckedOutTime.IsZero(), "event %d should have LastCheckedOutTime set", ev.ID)
+	assert.Len(t, createdCheckins, 2, "all checkouts with known locations should be created")
+	assert.Equal(t, int64(1), eventRepo.UpdateEventFuncCallCount.Load(), "event should be marked checked out when the whole batch resolves")
+	assert.False(t, events[0].LastCheckedOutTime.IsZero(), "LastCheckedOutTime should advance when no checkouts are dropped")
+}
+
+func Test_processEventCheckouts_advanceUsesInjectedClock(t *testing.T) {
+	events := []event.Event{
+		{ID: 1, PlanningCenterID: "evt_1", AutoFetch: true, LastCheckedOutTime: time.Time{}},
 	}
+
+	eventRepo := &event.MockRepo{
+		GetEventByIDFunc: func(ctx context.Context, id int64) (event.Event, error) {
+			return events[0], nil
+		},
+		UpdateEventFunc: func(ctx context.Context, ev event.Event) error {
+			events[0] = ev
+			return nil
+		},
+	}
+
+	checkinRepo := &checkin.MockRepo{
+		CreateCheckinFunc: func(ctx context.Context, c checkin.Checkin) (checkin.Checkin, error) {
+			return c, nil
+		},
+	}
+
+	pcClient := &planningcenter.MockClient{
+		GetCheckoutsForEventFunc: func(ctx context.Context, eventID string, checkedOutOnOrAfter time.Time, limit int) ([]planningcenter.Checkout, error) {
+			return []planningcenter.Checkout{
+				{ID: "pc_checkout_1", PlanningCenterLocationID: "pc_loc_1"},
+			}, nil
+		},
+	}
+
+	locationIDMap := sync.Map{}
+	locationIDMap.Store("pc_loc_1", int64(5))
+
+	fixedNow := time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC)
+	svc := testService(noCheckWindows(), eventRepo, checkinRepo, pcClient, &locationIDMap, 0, false)
+	svc.now = func() time.Time { return fixedNow }
+
+	err := svc.processEventCheckouts(t.Context(), events[0], svc.now())
+	require.NoError(t, err)
+
+	assert.Equal(t, fixedNow, events[0].LastCheckedOutTime, "LastCheckedOutTime should advance to the injected clock time, not time.Now()")
+}
+
+func Test_processEventCheckouts_createFailureDoesNotAbortBatch(t *testing.T) {
+	events := []event.Event{
+		{ID: 1, PlanningCenterID: "evt_1", AutoFetch: true, LastCheckedOutTime: time.Time{}},
+	}
+
+	eventRepo := &event.MockRepo{
+		GetEventByIDFunc: func(ctx context.Context, id int64) (event.Event, error) {
+			return events[0], nil
+		},
+		UpdateEventFunc: func(ctx context.Context, ev event.Event) error {
+			events[0] = ev
+			return nil
+		},
+	}
+
+	var attempts []string
+	checkinRepo := &checkin.MockRepo{
+		CreateCheckinFunc: func(ctx context.Context, c checkin.Checkin) (checkin.Checkin, error) {
+			attempts = append(attempts, c.PlanningCenterID)
+			if c.PlanningCenterID == "pc_checkout_fail" {
+				return c, assert.AnError
+			}
+			return c, nil
+		},
+	}
+
+	pcClient := &planningcenter.MockClient{
+		GetCheckoutsForEventFunc: func(ctx context.Context, eventID string, checkedOutOnOrAfter time.Time, limit int) ([]planningcenter.Checkout, error) {
+			return []planningcenter.Checkout{
+				{ID: "pc_checkout_fail", FirstName: "Failing", LastName: "Row", SecurityCode: "FAIL", PlanningCenterLocationID: "pc_loc_1"},
+				{ID: "pc_checkout_ok", FirstName: "Succeeding", LastName: "Row", SecurityCode: "OKOK", PlanningCenterLocationID: "pc_loc_1"},
+			}, nil
+		},
+	}
+
+	locationIDMap := sync.Map{}
+	locationIDMap.Store("pc_loc_1", int64(5))
+
+	svc := testService(noCheckWindows(), eventRepo, checkinRepo, pcClient, &locationIDMap, 0, false)
+	err := svc.processEventCheckouts(t.Context(), events[0], svc.now())
+	require.Error(t, err, "aggregated create failures should be returned")
+	assert.True(t, isEventCheckinFailure(err), "batch create failures should be a non-fatal per-event failure")
+	assert.Contains(t, err.Error(), "create checkin pc_checkout_fail")
+
+	assert.Equal(t, []string{"pc_checkout_fail", "pc_checkout_ok"}, attempts, "both checkouts should be attempted even though the first fails")
+	assert.Zero(t, eventRepo.UpdateEventFuncCallCount.Load(), "event should not be marked checked out when a checkin failed to create")
+	assert.True(t, events[0].LastCheckedOutTime.IsZero(), "LastCheckedOutTime should remain unchanged so the event is retried next cycle")
 }
 
 func Test_eventCheckoutLoop_workerError_aggregated(t *testing.T) {
@@ -414,11 +757,14 @@ func Test_eventCheckoutLoop_workerError_aggregated(t *testing.T) {
 		{ID: 2, PlanningCenterID: "evt_fail", AutoFetch: true, LastCheckedOutTime: time.Time{}},
 	}
 
+	var eventsMu sync.Mutex
 	eventRepo := &event.MockRepo{
 		ListEventsFunc: func(ctx context.Context, filter event.EventFilter) ([]event.Event, error) {
 			return events, nil
 		},
 		GetEventByIDFunc: func(ctx context.Context, id int64) (event.Event, error) {
+			eventsMu.Lock()
+			defer eventsMu.Unlock()
 			for _, e := range events {
 				if e.ID == id {
 					return e, nil
@@ -427,6 +773,8 @@ func Test_eventCheckoutLoop_workerError_aggregated(t *testing.T) {
 			return event.Event{}, nil
 		},
 		UpdateEventFunc: func(ctx context.Context, ev event.Event) error {
+			eventsMu.Lock()
+			defer eventsMu.Unlock()
 			for i, e := range events {
 				if e.ID == ev.ID {
 					events[i] = ev
@@ -511,6 +859,157 @@ func Test_eventCheckoutLoop_timeout_nonFatal(t *testing.T) {
 	require.NoError(t, err, "timeouts should be non-fatal and not fail the loop batch")
 }
 
+func Test_eventCheckoutLoop_timeout_placesEventInBackoff(t *testing.T) {
+	events := []event.Event{
+		{ID: 1, PlanningCenterID: "evt_1", AutoFetch: true, LastCheckedOutTime: time.Time{}},
+	}
+
+	eventRepo := &event.MockRepo{
+		ListEventsFunc: func(ctx context.Context, filter event.EventFilter) ([]event.Event, error) {
+			return events, nil
+		},
+		GetEventByIDFunc: func(ctx context.Context, id int64) (event.Event, error) {
+			return events[0], nil
+		},
+		UpdateEventFunc: func(ctx context.Context, ev event.Event) error {
+			events[0] = ev
+			return nil
+		},
+	}
+
+	checkinRepo := &checkin.MockRepo{}
+
+	pcClient := &planningcenter.MockClient{
+		GetCheckoutsForEventFunc: func(ctx context.Context, eventID string, checkedOutOnOrAfter time.Time, limit int) ([]planningcenter.Checkout, error) {
+			return nil, &planningcenter.TimeoutError{Err: context.DeadlineExceeded}
+		},
+	}
+
+	locationIDMap := sync.Map{}
+	locationIDMap.Store("pc_loc_1", int64(1))
+
+	cur := time.Now()
+	svc := testService(noCheckWindows(), eventRepo, checkinRepo, pcClient, &locationIDMap, time.Millisecond, false)
+	svc.now = func() time.Time { return cur }
+
+	require.NoError(t, svc.eventCheckoutLoop(t.Context(), nil))
+	require.Equal(t, int64(1), eventRepo.GetEventByIDFuncCallCount.Load(), "first cycle should process the event")
+
+	require.NoError(t, svc.eventCheckoutLoop(t.Context(), nil))
+	assert.Equal(t, int64(1), eventRepo.GetEventByIDFuncCallCount.Load(), "a timed-out event should be in backoff and skipped until it expires")
+
+	cur = cur.Add(10 * time.Minute)
+	require.NoError(t, svc.eventCheckoutLoop(t.Context(), nil))
+	assert.Equal(t, int64(2), eventRepo.GetEventByIDFuncCallCount.Load(), "a timed-out event should be reprocessed once its backoff expires")
+}
+
+func Test_eventCheckoutLoop_checkinFailure_nonFatal(t *testing.T) {
+	events := []event.Event{
+		{ID: 1, PlanningCenterID: "evt_1", AutoFetch: true, LastCheckedOutTime: time.Time{}},
+	}
+
+	eventRepo := &event.MockRepo{
+		ListEventsFunc: func(ctx context.Context, filter event.EventFilter) ([]event.Event, error) {
+			return events, nil
+		},
+		GetEventByIDFunc: func(ctx context.Context, id int64) (event.Event, error) {
+			for _, e := range events {
+				if e.ID == id {
+					return e, nil
+				}
+			}
+			return event.Event{}, nil
+		},
+		UpdateEventFunc: func(ctx context.Context, ev event.Event) error {
+			for i, e := range events {
+				if e.ID == ev.ID {
+					events[i] = ev
+					return nil
+				}
+			}
+			return nil
+		},
+	}
+
+	checkinRepo := &checkin.MockRepo{
+		CreateCheckinFunc: func(ctx context.Context, c checkin.Checkin) (checkin.Checkin, error) {
+			return c, assert.AnError
+		},
+	}
+
+	pcClient := &planningcenter.MockClient{
+		GetCheckoutsForEventFunc: func(ctx context.Context, eventID string, checkedOutOnOrAfter time.Time, limit int) ([]planningcenter.Checkout, error) {
+			return []planningcenter.Checkout{
+				{ID: "c_fail", FirstName: "Failing", LastName: "Row", SecurityCode: "FAIL", PlanningCenterLocationID: "pc_loc_1"},
+			}, nil
+		},
+	}
+
+	locationIDMap := sync.Map{}
+	locationIDMap.Store("pc_loc_1", int64(1))
+
+	err := testService(noCheckWindows(), eventRepo, checkinRepo, pcClient, &locationIDMap, 5*time.Minute, false).eventCheckoutLoop(t.Context(), nil)
+	require.NoError(t, err, "checkin-creation failures should be non-fatal and not fail the loop batch")
+	assert.True(t, events[0].LastCheckedOutTime.IsZero(), "event with a failed checkin should not advance LastCheckedOutTime")
+}
+
+func Test_eventCheckoutLoop_drops_nonFatal(t *testing.T) {
+	events := []event.Event{
+		{ID: 1, PlanningCenterID: "evt_dropped", AutoFetch: true, LastCheckedOutTime: time.Time{}},
+		{ID: 2, PlanningCenterID: "evt_ok", AutoFetch: true, LastCheckedOutTime: time.Time{}},
+	}
+
+	eventRepo := &event.MockRepo{
+		ListEventsFunc: func(ctx context.Context, filter event.EventFilter) ([]event.Event, error) {
+			return events, nil
+		},
+		GetEventByIDFunc: func(ctx context.Context, id int64) (event.Event, error) {
+			for _, e := range events {
+				if e.ID == id {
+					return e, nil
+				}
+			}
+			return event.Event{}, nil
+		},
+		UpdateEventFunc: func(ctx context.Context, ev event.Event) error {
+			for i, e := range events {
+				if e.ID == ev.ID {
+					events[i] = ev
+					return nil
+				}
+			}
+			return nil
+		},
+	}
+
+	checkinRepo := &checkin.MockRepo{
+		CreateCheckinFunc: func(ctx context.Context, c checkin.Checkin) (checkin.Checkin, error) {
+			return c, nil
+		},
+	}
+
+	pcClient := &planningcenter.MockClient{
+		GetCheckoutsForEventFunc: func(ctx context.Context, eventID string, checkedOutOnOrAfter time.Time, limit int) ([]planningcenter.Checkout, error) {
+			if eventID == "evt_dropped" {
+				return []planningcenter.Checkout{
+					{ID: "c_dropped", FirstName: "Dropped", LastName: "Row", SecurityCode: "DROP", PlanningCenterLocationID: "unknown_loc"},
+				}, nil
+			}
+			return []planningcenter.Checkout{
+				{ID: "c_ok", FirstName: "Ok", LastName: "Row", SecurityCode: "OKOK", PlanningCenterLocationID: "pc_loc_1"},
+			}, nil
+		},
+	}
+
+	locationIDMap := sync.Map{}
+	locationIDMap.Store("pc_loc_1", int64(1))
+
+	err := testService(noCheckWindows(), eventRepo, checkinRepo, pcClient, &locationIDMap, 5*time.Minute, false).eventCheckoutLoop(t.Context(), nil)
+	require.NoError(t, err, "dropped checkouts should be non-fatal and not fail the loop batch")
+	assert.True(t, events[0].LastCheckedOutTime.IsZero(), "event with a dropped checkout should not advance LastCheckedOutTime")
+	assert.False(t, events[1].LastCheckedOutTime.IsZero(), "event with no drops should advance LastCheckedOutTime normally")
+}
+
 func Test_processEventCheckouts_updateEventFailureDoesNotCorruptState(t *testing.T) {
 	originalTime := time.Now().Add(-1 * time.Hour).UTC()
 	ev := event.Event{ID: 1, PlanningCenterID: "evt_1", AutoFetch: true, LastCheckedOutTime: originalTime}
@@ -545,13 +1044,62 @@ func Test_processEventCheckouts_updateEventFailureDoesNotCorruptState(t *testing
 	locationIDMap.Store("pc_loc_1", int64(5))
 
 	svc := testService(noCheckWindows(), eventRepo, checkinRepo, pcClient, &locationIDMap, 0, false)
-	err := svc.processEventCheckouts(t.Context(), ev)
+	err := svc.processEventCheckouts(t.Context(), ev, svc.now())
 	require.Error(t, err, "should return error when UpdateEvent fails")
 	assert.Contains(t, err.Error(), "failed to update event")
 
 	assert.Equal(t, originalTime, ev.LastCheckedOutTime, "LastCheckedOutTime should not be updated when UpdateEvent fails")
 
 	assert.Len(t, createdCheckins, 1, "checkin should still be created before UpdateEvent failure")
+}
+
+func Test_getEventMutex_boundedStripedPool(t *testing.T) {
+	svc := testService(noCheckWindows(), &event.MockRepo{}, &checkin.MockRepo{}, &planningcenter.MockClient{}, &sync.Map{}, 0, false)
+
+	// Exercise the pool concurrently to make sure loads of distinct event IDs
+	// share the fixed stripe array without races or nil mutexes.
+	const eventCount = 10000
+	errCh := make(chan error, eventCount)
+	var wg sync.WaitGroup
+	for i := range eventCount {
+		id := int64(i + 1)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if svc.getEventMutex(id) == nil {
+				errCh <- fmt.Errorf("getEventMutex(%d) returned nil", id)
+				return
+			}
+			errCh <- nil
+		}()
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		require.NoError(t, err)
+	}
+
+	seen := make(map[*sync.Mutex]bool)
+	for i := range eventCount {
+		seen[svc.getEventMutex(int64(i+1))] = true
+	}
+	assert.LessOrEqual(t, len(seen), eventMutexStripeCount,
+		"the striped pool must not grow beyond its fixed size regardless of distinct event IDs")
+	assert.Greater(t, len(seen), 1, "distinct event IDs should spread across more than one stripe")
+
+	for i := range eventCount {
+		assert.Same(t, svc.getEventMutex(int64(i+1)), svc.getEventMutex(int64(i+1)), "the same event ID must always map to the same stripe mutex")
+	}
+
+	assert.Same(t, svc.getEventMutex(5), svc.getEventMutex(eventMutexStripeCount+5), "event IDs congruent modulo the stripe count share a lock")
+}
+
+func Test_getEventMutex_negativeEventID_doesNotPanic(t *testing.T) {
+	svc := testService(noCheckWindows(), &event.MockRepo{}, &checkin.MockRepo{}, &planningcenter.MockClient{}, &sync.Map{}, 0, false)
+	require.NotPanics(t, func() {
+		mu := svc.getEventMutex(-1)
+		require.NotNil(t, mu)
+	})
 }
 
 func Test_processEventCheckouts_concurrentSameEvent_mutexProtection(t *testing.T) {
@@ -609,9 +1157,11 @@ func Test_processEventCheckouts_concurrentSameEvent_mutexProtection(t *testing.T
 
 	var wg sync.WaitGroup
 
+	ev := events[0]
+
 	for range goroutines {
 		wg.Go(func() {
-			if err := svc.processEventCheckouts(t.Context(), events[0]); err != nil {
+			if err := svc.processEventCheckouts(t.Context(), ev, svc.now()); err != nil {
 				errCh <- err
 			}
 		})
@@ -803,7 +1353,7 @@ func Test_eventCheckoutLoop_stopChMidLoop_drainsInFlight(t *testing.T) {
 	err := <-errCh
 	require.NoError(t, err)
 	assert.Equal(t, int64(5), createdCheckins.Load(), "only in-flight events should complete after stopCh closes")
-	assert.Equal(t, 5, eventRepo.GetEventByIDFuncCallCount, "the 6th event should not have been dispatched after stopCh closes")
+	assert.Equal(t, int64(5), eventRepo.GetEventByIDFuncCallCount.Load(), "the 6th event should not have been dispatched after stopCh closes")
 }
 
 func Test_shouldSwallowLoopError(t *testing.T) {
@@ -869,42 +1419,33 @@ func TestMinutesSinceWeekStartUTC(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			original := nowFunc
-			nowFunc = func() time.Time { return tt.mockTime }
-			defer func() { nowFunc = original }()
-
-			got := minutesSinceWeekStartUTC()
+			got := minutesSinceWeekStartUTC(tt.mockTime)
 			assert.Equal(t, tt.want, got)
 		})
 	}
 }
 
 func TestLocalToUTCWeekMinutes(t *testing.T) {
-	original := nowFunc
-	nowFunc = func() time.Time { return time.Date(2026, 3, 29, 22, 0, 0, 0, time.UTC) }
-	defer func() { nowFunc = original }()
+	now := time.Date(2026, 3, 29, 22, 0, 0, 0, time.UTC)
 
-	got, err := localToUTCWeekMinutes(1, 9, 0, "America/New_York")
+	got, err := localToUTCWeekMinutes(1, 9, 0, "America/New_York", now)
 	require.NoError(t, err)
 	assert.Equal(t, 780, got, "Monday 09:00 NY should be 780 minutes (13:00 UTC)")
 }
 
 func TestLocalToUTCWeekMinutes_SameDay(t *testing.T) {
-	original := nowFunc
-	nowFunc = func() time.Time { return time.Date(2026, 3, 25, 12, 0, 0, 0, time.UTC) }
-	defer func() { nowFunc = original }()
+	now := time.Date(2026, 3, 25, 12, 0, 0, 0, time.UTC)
 
-	got, err := localToUTCWeekMinutes(3, 14, 30, "America/Los_Angeles")
+	got, err := localToUTCWeekMinutes(3, 14, 30, "America/Los_Angeles", now)
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, got, 0)
 	assert.Less(t, got, minutesPerWeek)
 }
 
 func TestLocalToUTCWeekMinutes_InvalidTimezone(t *testing.T) {
-	original := nowFunc
-	defer func() { nowFunc = original }()
+	now := time.Date(2026, 3, 25, 12, 0, 0, 0, time.UTC)
 
-	_, err := localToUTCWeekMinutes(1, 9, 0, "Invalid/Timezone")
+	_, err := localToUTCWeekMinutes(1, 9, 0, "Invalid/Timezone", now)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid timezone")
 }
@@ -982,7 +1523,10 @@ func TestMergeWindows(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := mergeWindows(tt.checkWindows)
+			// Anchor all windows to the week of Wednesday 2026-03-25 so the
+			// merged minute ranges are deterministic regardless of wall clock.
+			now := time.Date(2026, 3, 25, 12, 0, 0, 0, time.UTC)
+			got, err := mergeWindows(tt.checkWindows, now)
 			if tt.wantErr {
 				assert.Error(t, err)
 				return
@@ -994,10 +1538,6 @@ func TestMergeWindows(t *testing.T) {
 }
 
 func Test_eventCheckoutLoop_windowFiltersEvents(t *testing.T) {
-	original := nowFunc
-	nowFunc = func() time.Time { return time.Date(2026, 3, 25, 12, 0, 0, 0, time.UTC) }
-	defer func() { nowFunc = original }()
-
 	events := []event.Event{
 		{ID: 1, PlanningCenterID: "evt_active", AutoFetch: true, LastCheckedOutTime: time.Time{}},
 		{ID: 2, PlanningCenterID: "evt_inactive", AutoFetch: true, LastCheckedOutTime: time.Time{}},
@@ -1049,7 +1589,11 @@ func Test_eventCheckoutLoop_windowFiltersEvents(t *testing.T) {
 		},
 	}
 
-	err := testService(checkWindowRepo, eventRepo, checkinRepo, pcClient, &locationIDMap, 5*time.Minute, true).eventCheckoutLoop(t.Context(), nil)
+	// Pin the service clock to Wednesday 2026-03-25 12:00 UTC so the check
+	// window evaluation is deterministic and independent of the wall clock.
+	svc := testService(checkWindowRepo, eventRepo, checkinRepo, pcClient, &locationIDMap, 5*time.Minute, true)
+	svc.now = func() time.Time { return time.Date(2026, 3, 25, 12, 0, 0, 0, time.UTC) }
+	err := svc.eventCheckoutLoop(t.Context(), nil)
 	require.NoError(t, err)
 
 	require.Len(t, createdCheckins, 1, "only the event inside its check window should be fetched")
@@ -1163,4 +1707,444 @@ func Test_eventCheckoutLoop_windowsDisabled_ignoresWindows(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, createdCheckins, 1, "events should be fetched regardless of windows when the flag is off")
 	assert.Zero(t, checkWindowRepo.ListCheckWindowsFuncCallCount, "check windows should not be queried when the flag is off")
+}
+
+// fetchCheckoutsCommand mirrors the checkout-fetcher subcommand flags in
+// internal/cmd/root.go so tests can exercise FetchCheckouts directly.
+func fetchCheckoutsCommand() *cli.Command {
+	return &cli.Command{
+		Flags: []cli.Flag{
+			&cli.StringFlag{Name: "db-file", Value: "kids-checkin.db"},
+			&cli.DurationFlag{Name: "interval", Value: 3 * time.Second},
+			&cli.DurationFlag{Name: "event-update-interval", Value: 3 * time.Second},
+			&cli.DurationFlag{Name: "runtime", Value: 5 * time.Second},
+			&cli.BoolFlag{Name: "service"},
+			&cli.BoolFlag{Name: "use-check-windows"},
+		},
+	}
+}
+
+// Test_FetchCheckouts_dbInitFailure returns a wrapped error instead of
+// panicking when the database cannot be initialized (bad path, permissions,
+// corrupt file).
+func Test_FetchCheckouts_dbInitFailure(t *testing.T) {
+	missingDB := filepath.Join(t.TempDir(), "does-not-exist", "kids-checkin.db")
+
+	cmd := fetchCheckoutsCommand()
+	require.NoError(t, cmd.Set("db-file", missingDB))
+
+	// Must return a normal error (not panic) so main can print a clean message.
+	require.NotPanics(t, func() {
+		err := FetchCheckouts(t.Context(), cmd)
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "init db")
+		assert.ErrorContains(t, err, missingDB)
+	})
+}
+
+// channelClosed reports whether ch was closed within timeout.
+func channelClosed(t *testing.T, ch <-chan struct{}, timeout time.Duration) bool {
+	t.Helper()
+	select {
+	case <-ch:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
+}
+
+// runWithBlocks calls s.run in a background goroutine and returns the channel
+// that will receive its result.
+func runWithBlocks(svc *Service, ctx context.Context, stopCh, forceExitCh <-chan struct{}, interval time.Duration) <-chan error {
+	resultCh := make(chan error, 1)
+	go func() {
+		resultCh <- svc.run(ctx, stopCh, forceExitCh, interval)
+	}()
+	return resultCh
+}
+
+// Test_run_preclosedStopCh_exitsWithoutPolling asserts the pre-loop shutdown
+// check returns immediately when stopCh is already closed, so no polling round
+// is scheduled.
+func Test_run_preclosedStopCh_exitsWithoutPolling(t *testing.T) {
+	listCalled := atomic.Bool{}
+	eventRepo := &event.MockRepo{
+		ListEventsFunc: func(ctx context.Context, filter event.EventFilter) ([]event.Event, error) {
+			listCalled.Store(true)
+			return nil, fmt.Errorf("eventCheckoutLoop should not run when stopCh is already closed")
+		},
+	}
+	checkinRepo := &checkin.MockRepo{}
+	pcClient := &planningcenter.MockClient{}
+	locationIDMap := sync.Map{}
+
+	stopCh := make(chan struct{})
+	close(stopCh)
+	resultCh := runWithBlocks(testService(noCheckWindows(), eventRepo, checkinRepo, pcClient, &locationIDMap, 3*time.Second, false), t.Context(), stopCh, make(chan struct{}), 5*time.Minute)
+
+	select {
+	case err := <-resultCh:
+		require.NoError(t, err, "a pre-closed stopCh should exit cleanly")
+	case <-time.After(time.Second):
+		t.Fatal("run did not return despite stopCh being pre-closed")
+	}
+	assert.False(t, listCalled.Load(), "no polling round should be started when stopCh is already closed")
+}
+
+// Test_run_cancelledContext_exitsWithoutPolling asserts the pre-loop shutdown
+// check returns immediately when the context is already done.
+func Test_run_cancelledContext_exitsWithoutPolling(t *testing.T) {
+	listCalled := atomic.Bool{}
+	eventRepo := &event.MockRepo{
+		ListEventsFunc: func(ctx context.Context, filter event.EventFilter) ([]event.Event, error) {
+			listCalled.Store(true)
+			return nil, fmt.Errorf("eventCheckoutLoop should not run when the context is already done")
+		},
+	}
+	checkinRepo := &checkin.MockRepo{}
+	pcClient := &planningcenter.MockClient{}
+	locationIDMap := sync.Map{}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	resultCh := runWithBlocks(testService(noCheckWindows(), eventRepo, checkinRepo, pcClient, &locationIDMap, 3*time.Second, false), ctx, make(chan struct{}), make(chan struct{}), 5*time.Minute)
+
+	select {
+	case err := <-resultCh:
+		require.NoError(t, err, "a done context should exit cleanly")
+	case <-time.After(time.Second):
+		t.Fatal("run did not return despite the context being done")
+	}
+	assert.False(t, listCalled.Load(), "no polling round should be started when the context is already done")
+}
+
+// Test_run_forceExitChClosed_forceExits asserts that a closed forceExitCh is
+// caught by the blocking select after a polling round and surfaced as the
+// forced-exit error.
+func Test_run_forceExitChClosed_forceExits(t *testing.T) {
+	var listCalls atomic.Int64
+	eventRepo := &event.MockRepo{
+		ListEventsFunc: func(ctx context.Context, filter event.EventFilter) ([]event.Event, error) {
+			listCalls.Add(1)
+			return nil, nil
+		},
+	}
+	checkinRepo := &checkin.MockRepo{}
+	pcClient := &planningcenter.MockClient{}
+	locationIDMap := sync.Map{}
+
+	stopCh := make(chan struct{})
+	forceExitCh := make(chan struct{})
+	close(forceExitCh)
+	resultCh := runWithBlocks(testService(noCheckWindows(), eventRepo, checkinRepo, pcClient, &locationIDMap, 3*time.Second, false), t.Context(), stopCh, forceExitCh, 5*time.Minute)
+
+	select {
+	case err := <-resultCh:
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "graceful shutdown did not complete")
+	case <-time.After(time.Second):
+		t.Fatal("run did not return despite forceExitCh being closed")
+	}
+	assert.Equal(t, int64(1), listCalls.Load(), "one polling round should run before the blocking select sees forceExitCh")
+}
+
+// Test_run_stopChClosedDuringRun_exitsCleanly asserts that closing stopCh while
+// the loop is sleeping on its interval exits cleanly via the blocking select.
+func Test_run_stopChClosedDuringRun_exitsCleanly(t *testing.T) {
+	eventRepo := &event.MockRepo{
+		ListEventsFunc: func(ctx context.Context, filter event.EventFilter) ([]event.Event, error) {
+			return nil, nil
+		},
+	}
+	checkinRepo := &checkin.MockRepo{}
+	pcClient := &planningcenter.MockClient{}
+	locationIDMap := sync.Map{}
+
+	stopCh := make(chan struct{})
+	forceExitCh := make(chan struct{})
+	resultCh := runWithBlocks(testService(noCheckWindows(), eventRepo, checkinRepo, pcClient, &locationIDMap, 3*time.Second, false), t.Context(), stopCh, forceExitCh, 30*time.Second)
+
+	time.Sleep(50 * time.Millisecond)
+	close(stopCh)
+
+	select {
+	case err := <-resultCh:
+		require.NoError(t, err, "stopCh during the polling sleep should end the loop cleanly")
+	case <-time.After(time.Second):
+		t.Fatal("run did not return after stopCh was closed during the polling sleep")
+	}
+}
+
+// Test_run_cadenceMeasuredFromLoopStart asserts the polling cadence is measured
+// from the start of each iteration, not its completion. The mock event loop
+// takes longer than the interval; the gap between consecutive loop starts must
+// therefore track the work duration (no full extra interval sleep is added on
+// top), while iterations must still never overlap.
+func Test_run_cadenceMeasuredFromLoopStart(t *testing.T) {
+	const (
+		interval = 100 * time.Millisecond
+		workTime = 120 * time.Millisecond
+	)
+
+	var (
+		mu     sync.Mutex
+		starts []time.Time
+	)
+	eventRepo := &event.MockRepo{
+		ListEventsFunc: func(ctx context.Context, filter event.EventFilter) ([]event.Event, error) {
+			mu.Lock()
+			starts = append(starts, time.Now())
+			mu.Unlock()
+			time.Sleep(workTime)
+			return nil, nil
+		},
+	}
+	checkinRepo := &checkin.MockRepo{}
+	pcClient := &planningcenter.MockClient{}
+	locationIDMap := sync.Map{}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	stopCh := make(chan struct{})
+	forceExitCh := make(chan struct{})
+	resultCh := runWithBlocks(testService(noCheckWindows(), eventRepo, checkinRepo, pcClient, &locationIDMap, 3*time.Second, false), ctx, stopCh, forceExitCh, interval)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		mu.Lock()
+		n := len(starts)
+		mu.Unlock()
+		if n >= 4 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for four polling iterations")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	cancel()
+	select {
+	case err := <-resultCh:
+		require.NoError(t, err, "cancelling the context should end the loop cleanly")
+	case <-time.After(time.Second):
+		t.Fatal("run did not return after the context was cancelled")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.GreaterOrEqual(t, len(starts), 4, "expected at least four polling iterations")
+	for i := 1; i < len(starts); i++ {
+		gap := starts[i].Sub(starts[i-1])
+		// Iterations must not overlap: a new iteration only begins after the
+		// previous one's work completes.
+		require.GreaterOrEqual(t, gap, workTime-25*time.Millisecond,
+			"iteration %d started before the previous one finished", i)
+		// Cadence is measured from loop start: a slow iteration must not add a
+		// full extra interval on top of its runtime. The old model produced
+		// ~workTime+interval gaps; this model produces ~workTime ones. The
+		// tolerance is deliberately loose on the high side: it only needs to
+		// reject the ~workTime+interval signature while absorbing scheduler
+		// jitter on a loaded CI.
+		require.Less(t, gap, workTime+interval,
+			"iteration %d gap suggests the interval was added on top of the work duration", i)
+	}
+}
+
+// Test_run_clampsMinimumGapWhenWorkExceedsInterval asserts that when a polling
+// iteration's work takes longer than the interval, the loop still waits a
+// minimum idle gap (interval/2) before starting the next iteration instead of
+// busy-looping back-to-back. Cadence remains measured from loop start, so the
+// gap tracks the work duration plus the clamped floor rather than adding a full
+// extra interval on top.
+func Test_run_clampsMinimumGapWhenWorkExceedsInterval(t *testing.T) {
+	const (
+		interval = 100 * time.Millisecond
+		workTime = 400 * time.Millisecond
+		minGap   = interval / 2
+	)
+
+	var (
+		mu     sync.Mutex
+		starts []time.Time
+	)
+	eventRepo := &event.MockRepo{
+		ListEventsFunc: func(ctx context.Context, filter event.EventFilter) ([]event.Event, error) {
+			mu.Lock()
+			starts = append(starts, time.Now())
+			mu.Unlock()
+			time.Sleep(workTime)
+			return nil, nil
+		},
+	}
+	checkinRepo := &checkin.MockRepo{}
+	pcClient := &planningcenter.MockClient{}
+	locationIDMap := sync.Map{}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	stopCh := make(chan struct{})
+	forceExitCh := make(chan struct{})
+	resultCh := runWithBlocks(testService(noCheckWindows(), eventRepo, checkinRepo, pcClient, &locationIDMap, 3*time.Second, false), ctx, stopCh, forceExitCh, interval)
+
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		mu.Lock()
+		n := len(starts)
+		mu.Unlock()
+		if n >= 4 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for four polling iterations")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	cancel()
+	select {
+	case err := <-resultCh:
+		require.NoError(t, err, "cancelling the context should end the loop cleanly")
+	case <-time.After(time.Second):
+		t.Fatal("run did not return after the context was cancelled")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.GreaterOrEqual(t, len(starts), 4, "expected at least four polling iterations")
+	for i := 1; i < len(starts); i++ {
+		gap := starts[i].Sub(starts[i-1])
+		// A slow iteration must not be followed by a back-to-back start: the
+		// clamped floor (interval/2) guarantees a minimum idle gap after work
+		// that exceeds the interval.
+		require.GreaterOrEqual(t, gap, workTime+minGap-25*time.Millisecond,
+			"iteration %d started with less than the minimum clamped gap after the previous work", i)
+		// The cadence is still measured from loop start: a slow iteration must
+		// not add a full extra interval on top of its runtime plus the floor.
+		require.Less(t, gap, workTime+interval,
+			"iteration %d gap suggests the interval was added on top of the work duration", i)
+	}
+}
+
+// runSignalLoopInGoroutine runs runSignalLoop in a background goroutine and
+// returns the channel that will receive its result.
+func runSignalLoopInGoroutine(logCtx context.Context, sigCh <-chan os.Signal, sigDone <-chan struct{}, stopOnce *sync.Once, stopCh, forceExitCh chan struct{}, gracePeriod time.Duration) <-chan error {
+	resultCh := make(chan error, 1)
+	go func() {
+		resultCh <- runSignalLoop(logCtx, sigCh, sigDone, stopOnce, stopCh, forceExitCh, gracePeriod)
+	}()
+	return resultCh
+}
+
+func Test_runSignalLoop_firstSignal_gracefulStop(t *testing.T) {
+	sigCh := make(chan os.Signal, 1)
+	sigDone := make(chan struct{})
+	stopCh := make(chan struct{})
+	forceExitCh := make(chan struct{})
+	var stopOnce sync.Once
+
+	resultCh := runSignalLoopInGoroutine(t.Context(), sigCh, sigDone, &stopOnce, stopCh, forceExitCh, time.Hour)
+
+	sigCh <- os.Interrupt
+
+	assert.True(t, channelClosed(t, stopCh, time.Second), "first signal should close stopCh to start a graceful drain")
+
+	close(sigDone)
+	select {
+	case err := <-resultCh:
+		require.NoError(t, err, "clean shutdown should produce no error")
+	case <-time.After(time.Second):
+		t.Fatal("runSignalLoop did not exit after sigDone was closed (goroutine leak)")
+	}
+}
+
+func Test_runSignalLoop_secondSignal_forcesImmediateExit(t *testing.T) {
+	sigCh := make(chan os.Signal, 1)
+	sigDone := make(chan struct{})
+	stopCh := make(chan struct{})
+	forceExitCh := make(chan struct{})
+	var stopOnce sync.Once
+
+	resultCh := runSignalLoopInGoroutine(t.Context(), sigCh, sigDone, &stopOnce, stopCh, forceExitCh, time.Hour)
+
+	sigCh <- os.Interrupt
+	assert.True(t, channelClosed(t, stopCh, time.Second), "first signal should close stopCh")
+
+	sigCh <- syscall.SIGTERM
+	select {
+	case err := <-resultCh:
+		require.ErrorIs(t, err, errForceExitNow, "second signal should request an immediate force exit")
+	case <-time.After(time.Second):
+		t.Fatal("runSignalLoop did not return after the second signal")
+	}
+}
+
+func Test_runSignalLoop_secondSignal_stopsForceExitTimer(t *testing.T) {
+	const shortGrace = 50 * time.Millisecond
+
+	sigCh := make(chan os.Signal, 1)
+	sigDone := make(chan struct{})
+	stopCh := make(chan struct{})
+	forceExitCh := make(chan struct{})
+	var stopOnce sync.Once
+
+	resultCh := runSignalLoopInGoroutine(t.Context(), sigCh, sigDone, &stopOnce, stopCh, forceExitCh, shortGrace)
+
+	sigCh <- os.Interrupt
+	assert.True(t, channelClosed(t, stopCh, time.Second), "first signal should close stopCh")
+
+	sigCh <- syscall.SIGTERM
+	select {
+	case err := <-resultCh:
+		require.ErrorIs(t, err, errForceExitNow, "second signal should request an immediate force exit")
+	case <-time.After(time.Second):
+		t.Fatal("runSignalLoop did not return after the second signal")
+	}
+
+	assert.False(t, channelClosed(t, forceExitCh, 2*shortGrace), "the pending force-exit timer should be stopped on the second signal")
+}
+
+func Test_runSignalLoop_forceExitTimer_closesForceExitCh(t *testing.T) {
+	const shortGrace = 50 * time.Millisecond
+
+	sigCh := make(chan os.Signal, 1)
+	sigDone := make(chan struct{})
+	stopCh := make(chan struct{})
+	forceExitCh := make(chan struct{})
+	var stopOnce sync.Once
+
+	resultCh := runSignalLoopInGoroutine(t.Context(), sigCh, sigDone, &stopOnce, stopCh, forceExitCh, shortGrace)
+
+	sigCh <- os.Interrupt
+
+	assert.True(t, channelClosed(t, stopCh, time.Second), "first signal should close stopCh")
+	assert.True(t, channelClosed(t, forceExitCh, 2*time.Second), "force exit channel should close after the grace period")
+
+	close(sigDone)
+	select {
+	case err := <-resultCh:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("runSignalLoop did not exit after sigDone was closed (goroutine leak)")
+	}
+}
+
+func Test_runSignalLoop_sigDoneClosed_noSignal_exitsCleanly(t *testing.T) {
+	sigCh := make(chan os.Signal, 1)
+	sigDone := make(chan struct{})
+	close(sigDone)
+	stopCh := make(chan struct{})
+	forceExitCh := make(chan struct{})
+	var stopOnce sync.Once
+
+	resultCh := runSignalLoopInGoroutine(t.Context(), sigCh, sigDone, &stopOnce, stopCh, forceExitCh, time.Second)
+
+	select {
+	case err := <-resultCh:
+		require.NoError(t, err, "closing sigDone without any signal should be a clean no-op exit")
+	case <-time.After(time.Second):
+		t.Fatal("runSignalLoop did not exit after sigDone was closed")
+	}
+
+	assert.False(t, channelClosed(t, stopCh, 20*time.Millisecond), "no signal should never close stopCh")
 }
