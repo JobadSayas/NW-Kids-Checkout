@@ -65,4 +65,4 @@ test:
 
 .PHONY: db-seed
 db-seed:
-	godotenv ./bin/csv-import
+	godotenv ./bin/db-seed

@@ -21,6 +21,10 @@ INSERT OR REPLACE INTO locations (id, planning_center_id, planning_center_parent
 SELECT id, planning_center_id, planning_center_parent_id, location_group_id, event_id, name, auto_fetch, last_checked_out_time
 FROM seed.locations;
 
+INSERT OR REPLACE INTO event_check_windows (id, event_id, start_day_of_week, start_time, end_day_of_week, end_time, timezone)
+SELECT id, event_id, start_day_of_week, start_time, end_day_of_week, end_time, timezone
+FROM seed.event_check_windows;
+
 COMMIT;
 DETACH seed;
 
