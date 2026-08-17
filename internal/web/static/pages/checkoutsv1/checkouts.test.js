@@ -27,7 +27,7 @@ function loadWindow({ html, url = 'http://localhost/', fetchImpl } = {}) {
         text: async () => ''
     }));
     dom.window.setInterval = () => 0;
-    dom.window.morphdom = () => {};
+    dom.window.morphdom = () => { };
     dom.window.eval(`${script}\n${exposeInternals}`);
     return dom.window;
 }
@@ -185,7 +185,7 @@ describe('checkoutsv1/checkouts', () => {
     it('renders empty state when no checkouts are active', () => {
         const window = loadWindow();
         const html = window.renderChildren([], Date.now());
-        expect(html).toContain('No active checkouts');
+        expect(html).toContain('No children called yet');
     });
 
     it('shows error state in children list on fetch error', async () => {
@@ -205,7 +205,7 @@ describe('checkoutsv1/checkouts', () => {
         });
 
         const originalConsoleError = window.console.error;
-        window.console.error = () => {};
+        window.console.error = () => { };
 
         try {
             await window.fetchChildrenData();

@@ -49,82 +49,8 @@
     </div>
 </div>
 
-<!-- Modal for Event Check Windows -->
-<div id="window-modal" class="fixed inset-0 z-50 hidden">
-    <div class="fixed inset-0 bg-black/50" onclick="closeModal()"></div>
-    <div class="fixed left-1/2 top-1/2 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl bg-white p-6 shadow-xl">
-        <h2 id="modal-title" class="mb-4 text-xl font-semibold">Check Windows</h2>
-        <div id="modal-status" class="hidden mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"></div>
-
-        <div id="modal-windows-list" class="mb-4"></div>
-
-        <button id="add-window-button" onclick="openAddWindow()" class="mb-4 inline-flex cursor-pointer items-center gap-2 rounded-md border border-slate-800 bg-slate-800 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-700">
-            Add Window
-        </button>
-
-        <form id="window-form" class="hidden">
-            <input type="hidden" id="window-id">
-
-            <div class="mb-4">
-                <label for="start-day" class="block text-sm font-medium text-slate-700">Start Day</label>
-                <select id="start-day" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2">
-                    <option value="1">Monday</option>
-                    <option value="2">Tuesday</option>
-                    <option value="3">Wednesday</option>
-                    <option value="4">Thursday</option>
-                    <option value="5">Friday</option>
-                    <option value="6">Saturday</option>
-                    <option value="7" selected>Sunday</option>
-                </select>
-            </div>
-
-            <div class="mb-4">
-                <label for="start-time" class="block text-sm font-medium text-slate-700">Start Time</label>
-                <input type="text" id="start-time" placeholder="09:00" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2">
-                <p class="mt-1 text-xs text-slate-500">24-hour format (e.g., 09:00, 14:30, 23:00)</p>
-                <p id="start-time-error" class="mt-1 text-xs text-red-600 hidden"></p>
-            </div>
-
-            <div class="mb-4">
-                <label for="end-day" class="block text-sm font-medium text-slate-700">End Day</label>
-                <select id="end-day" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2">
-                    <option value="1">Monday</option>
-                    <option value="2">Tuesday</option>
-                    <option value="3">Wednesday</option>
-                    <option value="4">Thursday</option>
-                    <option value="5">Friday</option>
-                    <option value="6">Saturday</option>
-                    <option value="7" selected>Sunday</option>
-                </select>
-            </div>
-
-            <div class="mb-4">
-                <label for="end-time" class="block text-sm font-medium text-slate-700">End Time</label>
-                <input type="text" id="end-time" placeholder="12:00" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2">
-                <p class="mt-1 text-xs text-slate-500">24-hour format (e.g., 09:00, 14:30, 23:00)</p>
-                <p id="end-time-error" class="mt-1 text-xs text-red-600 hidden"></p>
-            </div>
-
-            <div class="mb-6">
-                <label for="timezone" class="block text-sm font-medium text-slate-700">Timezone</label>
-                <select id="timezone" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2">
-                    <option value="America/Chicago">America/Chicago (CT)</option>
-                    <option value="America/Los_Angeles">America/Los_Angeles (PT)</option>
-                    <option value="America/Denver">America/Denver (MT)</option>
-                    <option value="America/New_York">America/New_York (ET)</option>
-                    <option value="UTC">UTC</option>
-                </select>
-            </div>
-
-            <div class="flex justify-end gap-3">
-                <button type="button" onclick="cancelForm()" class="inline-flex cursor-pointer items-center gap-2 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-600 shadow-sm transition hover:border-slate-400 hover:text-slate-900">Cancel</button>
-                <button type="submit" class="inline-flex cursor-pointer items-center gap-2 rounded-md border border-slate-800 bg-slate-800 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-700">Save</button>
-            </div>
-        </form>
-    </div>
-</div>
-
 <script src="/static/js/location-sort.js?v=dev"></script>
+<script src="/static/js/check-windows.js?v=dev"></script>
 <script src="/static/pages/admin/locations.js?v=dev"></script>
 </body>
 </html>

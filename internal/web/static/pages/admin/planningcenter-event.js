@@ -57,10 +57,11 @@ async function syncEvent(eventId) {
     }
 
     if (response.status === 204) {
-        return null;
+        return { event: null, created: false };
     }
 
-    return response.json();
+    const event = await response.json();
+    return { event, created: response.status === 201 };
 }
 
 async function getExistingEvent(eventId) {
@@ -136,6 +137,90 @@ function renderLocations(locations) {
     });
 }
 
+const autoFetchModal = () => document.getElementById('auto-fetch-modal');
+const autoFetchToggle = () => document.getElementById('auto-fetch-toggle');
+const autoFetchToggleBg = () => document.getElementById('auto-fetch-toggle-bg');
+const autoFetchToggleKnob = () => document.getElementById('auto-fetch-toggle-knob');
+const autoFetchError = () => document.getElementById('auto-fetch-error');
+const autoFetchContinue = () => document.getElementById('auto-fetch-continue');
+
+let autoFetchEvent = null;
+
+function setAutoFetchToggleVisual(checked) {
+    const bg = autoFetchToggleBg();
+    const knob = autoFetchToggleKnob();
+    if (bg && knob) {
+        bg.style.backgroundColor = checked ? 'var(--color-emerald-500)' : 'var(--color-slate-200)';
+        knob.style.transform = checked ? 'translateX(1rem)' : 'translateX(0)';
+    }
+}
+
+function clearAutoFetchError() {
+    const error = autoFetchError();
+    if (error) {
+        error.classList.add('hidden');
+        error.textContent = '';
+    }
+}
+
+function openAutoFetchModal(event, created = false) {
+    const modal = autoFetchModal();
+    const toggle = autoFetchToggle();
+    if (!modal || !toggle) {
+        return;
+    }
+    autoFetchEvent = event;
+    const defaultValue = created ? true : Boolean(event && event.auto_fetch);
+    toggle.checked = defaultValue;
+    setAutoFetchToggleVisual(toggle.checked);
+    clearAutoFetchError();
+    modal.classList.remove('hidden');
+    modal.setAttribute('aria-hidden', 'false');
+}
+
+function closeAutoFetchModal() {
+    const modal = autoFetchModal();
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.setAttribute('aria-hidden', 'true');
+    }
+}
+
+async function handleAutoFetchContinue() {
+    const toggle = autoFetchToggle();
+    const continueButton = autoFetchContinue();
+    if (!toggle || !continueButton || !autoFetchEvent) {
+        return;
+    }
+    const chosenValue = toggle.checked;
+    clearAutoFetchError();
+    continueButton.disabled = true;
+    const originalLabel = continueButton.textContent;
+    continueButton.textContent = 'Saving...';
+    try {
+        if (chosenValue !== autoFetchEvent.auto_fetch) {
+            await fetchJson(`/v1/admin/events/${autoFetchEvent.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ auto_fetch: chosenValue })
+            });
+        }
+        closeAutoFetchModal();
+        if (window.openCheckWindowsModal) {
+            window.openCheckWindowsModal(autoFetchEvent.id, autoFetchEvent.name || eventNameLabel.textContent);
+        }
+    } catch (error) {
+        const errorEl = autoFetchError();
+        if (errorEl) {
+            errorEl.textContent = `Failed to save auto-fetch setting: ${error.message}`;
+            errorEl.classList.remove('hidden');
+        }
+    } finally {
+        continueButton.disabled = false;
+        continueButton.textContent = originalLabel;
+    }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     const eventId = getEventIdFromPath();
     eventIdLabel.textContent = eventId || '-';
@@ -163,14 +248,21 @@ document.addEventListener('DOMContentLoaded', () => {
             addEventButton.textContent = 'Refreshing event...';
             clearPageStatus();
             try {
-                const event = await syncEvent(eventId);
+                const { event, created } = await syncEvent(eventId);
                 if (event && event.name) {
                     eventNameLabel.textContent = event.name;
                 }
                 await loadLocations(eventId);
                 setPageStatus('Event data refreshed successfully.', 'success');
                 if (eventAddedStatus) {
-                    eventAddedStatus.classList.remove('hidden');
+                    if (created) {
+                        eventAddedStatus.classList.add('hidden');
+                    } else {
+                        eventAddedStatus.classList.remove('hidden');
+                    }
+                }
+                if (event) {
+                    openAutoFetchModal(event, created);
                 }
             } catch (error) {
                 setPageStatus(`Failed to refresh event data: ${error.message}`, 'error');
@@ -179,6 +271,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 addEventButton.textContent = originalLabel;
             }
         });
+    }
+
+    const autoFetchToggleEl = autoFetchToggle();
+    if (autoFetchToggleEl) {
+        autoFetchToggleEl.addEventListener('change', () => {
+            setAutoFetchToggleVisual(autoFetchToggleEl.checked);
+        });
+    }
+    const continueButton = autoFetchContinue();
+    if (continueButton) {
+        continueButton.addEventListener('click', handleAutoFetchContinue);
     }
 
     if (addEventButton) {

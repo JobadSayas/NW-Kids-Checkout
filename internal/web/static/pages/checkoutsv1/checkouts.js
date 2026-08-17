@@ -182,8 +182,8 @@ async function confirmCheckedOut(source, planningCenterId, publicId, checkbox, c
     try {
         const response = await fetch(endpoint, {
             method: 'PATCH',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({confirmed})
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ confirmed })
         });
 
         if (!response.ok) {
@@ -397,7 +397,7 @@ function updateUI() {
 
 function renderChildren(children, nowMs) {
     if (children.length === 0) {
-        return '<div class="text-center text-gray-500 py-8 text-3xl">No active checkouts</div>';
+        return '<div class="text-center text-gray-500 py-8 text-3xl">No children called yet</div>';
     }
 
     return children.map((child) => {
@@ -441,12 +441,12 @@ function morphChildren(target, html) {
     template.innerHTML = html;
     if (DEBUG) {
         const start = performance.now();
-        morphdom(target, template, {childrenOnly: true});
+        morphdom(target, template, { childrenOnly: true });
         const end = performance.now();
         console.log(`[morphdom] ${target.id || target.className || target.tagName} updated in ${(end - start).toFixed(2)}ms`);
         return;
     }
-    morphdom(target, template, {childrenOnly: true});
+    morphdom(target, template, { childrenOnly: true });
 }
 
 // Function to update current time display

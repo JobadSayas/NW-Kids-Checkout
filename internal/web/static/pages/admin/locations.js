@@ -2,21 +2,11 @@ const API_URL = '';
 
 const pageStatus = document.getElementById('page-status');
 const locationsBody = document.getElementById('locations-body');
-const windowModal = document.getElementById('window-modal');
-const windowForm = document.getElementById('window-form');
-const modalTitle = document.getElementById('modal-title');
-const modalStatus = document.getElementById('modal-status');
-const modalWindowsList = document.getElementById('modal-windows-list');
-const addWindowButton = document.getElementById('add-window-button');
-
-const dayNames = ['', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 let locationGroups = [];
 let locations = [];
 let eventsById = new Map();
 let pendingRequests = 0;
-let activeEvent = null;
-let windows = [];
 
 function setPageStatus(message, tone = 'info') {
     pageStatus.classList.remove('hidden');
@@ -150,7 +140,7 @@ function renderLocations() {
                 </label>
             </td>
             <td class="px-4 py-3">
-                <button onclick="openCheckWindowsModal(${eventId})" class="inline-flex cursor-pointer items-center gap-2 rounded-md border border-slate-800 bg-slate-800 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-700">
+                <button onclick="openCheckWindowsModal(${eventId}, ${JSON.stringify(eventName).replace(/"/g, '&quot;')})" class="inline-flex cursor-pointer items-center gap-2 rounded-md border border-slate-800 bg-slate-800 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-700">
                     Check Windows
                 </button>
             </td>
@@ -317,252 +307,7 @@ async function updateEvent(event, payload) {
     }
 }
 
-function setModalError(message) {
-    modalStatus.classList.remove('hidden');
-    modalStatus.textContent = message;
-}
-
-function clearModalError() {
-    modalStatus.classList.add('hidden');
-    modalStatus.textContent = '';
-}
-
-function showFieldError(fieldId, message) {
-    const errorEl = document.getElementById(`${fieldId}-error`);
-    const inputEl = document.getElementById(fieldId);
-    if (errorEl) {
-        errorEl.textContent = message;
-        errorEl.classList.remove('hidden');
-    }
-    if (inputEl) {
-        inputEl.classList.add('border-red-300');
-    }
-}
-
-function clearFieldErrors() {
-    ['start-time', 'end-time'].forEach(fieldId => {
-        const errorEl = document.getElementById(`${fieldId}-error`);
-        const inputEl = document.getElementById(fieldId);
-        if (errorEl) {
-            errorEl.classList.add('hidden');
-            errorEl.textContent = '';
-        }
-        if (inputEl) {
-            inputEl.classList.remove('border-red-300');
-        }
-    });
-}
-
-function isValidTime(timeStr) {
-    if (!timeStr) {
-        return false;
-    }
-    const regex = /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/;
-    return regex.test(timeStr);
-}
-
-function validateForm() {
-    let isValid = true;
-    clearFieldErrors();
-    clearModalError();
-
-    const startTime = document.getElementById('start-time').value.trim();
-    const endTime = document.getElementById('end-time').value.trim();
-
-    if (!startTime) {
-        showFieldError('start-time', 'Start time is required');
-        isValid = false;
-    } else if (!isValidTime(startTime)) {
-        showFieldError('start-time', 'Invalid time format. Use HH:MM (24-hour)');
-        isValid = false;
-    }
-
-    if (!endTime) {
-        showFieldError('end-time', 'End time is required');
-        isValid = false;
-    } else if (!isValidTime(endTime)) {
-        showFieldError('end-time', 'Invalid time format. Use HH:MM (24-hour)');
-        isValid = false;
-    }
-
-    return isValid;
-}
-
-function formatCheckWindow(window) {
-    const startDay = dayNames[window.start_day_of_week] || window.start_day_of_week;
-    const endDay = dayNames[window.end_day_of_week] || window.end_day_of_week;
-    const startTime = window.start_time || '';
-    const endTime = window.end_time || '';
-    const tz = window.timezone || '';
-
-    return `${startDay} ${startTime} - ${endDay} ${endTime} (${tz})`;
-}
-
-function showForm() {
-    modalWindowsList.classList.add('hidden');
-    addWindowButton.style.display = 'none';
-    windowForm.classList.remove('hidden');
-}
-
-function cancelForm() {
-    clearFieldErrors();
-    clearModalError();
-    windowForm.classList.add('hidden');
-    modalWindowsList.classList.remove('hidden');
-    addWindowButton.style.display = '';
-    modalTitle.textContent = `${activeEvent?.name || 'Event'} - Check Windows`;
-}
-
-function renderModalWindows() {
-    if (!windows.length) {
-        modalWindowsList.innerHTML = `
-            <p class="text-sm text-slate-500">No check windows configured. Add one to get started.</p>
-        `;
-        return;
-    }
-
-    modalWindowsList.innerHTML = windows.map(w => `
-        <div class="flex items-center justify-between gap-4 border-b border-slate-100 py-2 last:border-b-0">
-            <span class="text-sm text-slate-800">${formatCheckWindow(w)}</span>
-            <span class="flex shrink-0 items-center gap-2">
-                <button onclick="openEditWindow(${w.id})" class="inline-flex cursor-pointer items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-600 shadow-sm transition hover:border-slate-400 hover:text-slate-900">Edit</button>
-                <button onclick="deleteWindow(${w.id})" class="inline-flex cursor-pointer items-center gap-2 rounded-md border border-red-200 bg-white px-3 py-1.5 text-sm font-semibold text-red-600 shadow-sm transition hover:border-red-400 hover:text-red-800">Delete</button>
-            </span>
-        </div>
-    `).join('');
-}
-
-async function openCheckWindowsModal(eventId) {
-    activeEvent = eventsById.get(eventId) || null;
-    clearFieldErrors();
-    clearModalError();
-    cancelForm();
-    windowModal.classList.remove('hidden');
-    modalWindowsList.innerHTML = `<p class="text-sm text-slate-500">Loading check windows...</p>`;
-
-    try {
-        windows = await fetchJson(`/v1/admin/events/${eventId}/check-windows`);
-        renderModalWindows();
-    } catch (error) {
-        modalWindowsList.innerHTML = `<p class="text-sm text-red-600">Failed to load check windows: ${error.message}</p>`;
-    }
-}
-
-function openAddWindow() {
-    clearFieldErrors();
-    clearModalError();
-    document.getElementById('window-id').value = '';
-    document.getElementById('start-day').value = '7';
-    document.getElementById('start-time').value = '';
-    document.getElementById('end-day').value = '7';
-    document.getElementById('end-time').value = '';
-    document.getElementById('timezone').value = 'America/Chicago';
-
-    modalTitle.textContent = `${activeEvent?.name || 'Event'} - Add Check Window`;
-    showForm();
-}
-
-function openEditWindow(windowId) {
-    const window = windows.find(item => item.id === windowId);
-    if (!window) {
-        return;
-    }
-
-    clearFieldErrors();
-    clearModalError();
-    document.getElementById('window-id').value = windowId;
-    document.getElementById('start-day').value = String(window.start_day_of_week);
-    document.getElementById('start-time').value = window.start_time;
-    document.getElementById('end-day').value = String(window.end_day_of_week);
-    document.getElementById('end-time').value = window.end_time;
-    document.getElementById('timezone').value = window.timezone;
-
-    modalTitle.textContent = `${activeEvent?.name || 'Event'} - Edit Check Window`;
-    showForm();
-}
-
-function closeModal() {
-    clearFieldErrors();
-    clearModalError();
-    cancelForm();
-    windowModal.classList.add('hidden');
-}
-
-function handleKeydown(event) {
-    if (event.key === 'Escape' && !windowModal.classList.contains('hidden')) {
-        closeModal();
-    }
-}
-
-async function handleFormSubmit(event) {
-    event.preventDefault();
-
-    if (!validateForm()) {
-        return;
-    }
-
-    const windowId = document.getElementById('window-id').value;
-    const payload = {
-        start_day_of_week: parseInt(document.getElementById('start-day').value, 10),
-        start_time: document.getElementById('start-time').value.trim(),
-        end_day_of_week: parseInt(document.getElementById('end-day').value, 10),
-        end_time: document.getElementById('end-time').value.trim(),
-        timezone: document.getElementById('timezone').value
-    };
-
-    clearPageStatus();
-    pendingRequests += 1;
-
-    try {
-        if (windowId) {
-            await fetchJson(`/v1/admin/events/${activeEvent.id}/check-windows/${windowId}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-            setPageStatus('Check window updated successfully', 'success');
-        } else {
-            await fetchJson(`/v1/admin/events/${activeEvent.id}/check-windows`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-            setPageStatus('Check window created successfully', 'success');
-        }
-
-        closeModal();
-    } catch (error) {
-        setModalError(error.message);
-    } finally {
-        pendingRequests = Math.max(0, pendingRequests - 1);
-    }
-}
-
-async function deleteWindow(windowId) {
-    if (!confirm('Are you sure you want to delete this check window?')) {
-        return;
-    }
-
-    clearPageStatus();
-    pendingRequests += 1;
-
-    try {
-        await fetchJson(`/v1/admin/events/${activeEvent.id}/check-windows/${windowId}`, {
-            method: 'DELETE'
-        });
-        closeModal();
-        setPageStatus('Check window deleted successfully', 'success');
-    } catch (error) {
-        setModalError(error.message);
-    } finally {
-        pendingRequests = Math.max(0, pendingRequests - 1);
-    }
-}
-
-windowForm.addEventListener('submit', handleFormSubmit);
-
 document.addEventListener('DOMContentLoaded', () => {
-    document.addEventListener('keydown', handleKeydown);
     window.addEventListener('beforeunload', event => {
         if (pendingRequests > 0) {
             event.preventDefault();
@@ -572,10 +317,3 @@ document.addEventListener('DOMContentLoaded', () => {
 
     loadData();
 });
-
-window.openCheckWindowsModal = openCheckWindowsModal;
-window.openAddWindow = openAddWindow;
-window.openEditWindow = openEditWindow;
-window.closeModal = closeModal;
-window.cancelForm = cancelForm;
-window.deleteWindow = deleteWindow;

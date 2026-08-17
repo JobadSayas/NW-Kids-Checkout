@@ -31,7 +31,7 @@
             <button id="add-event-button" type="button" class="inline-flex cursor-pointer items-center justify-center rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400">
                 Add event to system
             </button>
-            <p id="event-added-status" class="hidden text-sm font-semibold text-emerald-700">This event has already been added to the system.</p>
+            <p id="event-added-status" class="hidden text-sm font-semibold text-emerald-700">This event has already been added to the system. Click "Refresh event data" to get the most up-to-date locations for the event.</p>
         </div>
     </header>
 
@@ -62,6 +62,29 @@
     </div>
 </div>
 
+<div id="auto-fetch-modal" class="fixed inset-0 z-50 hidden" aria-hidden="true">
+    <div class="fixed inset-0 bg-black/50"></div>
+    <div class="fixed left-1/2 top-1/2 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl bg-white p-6 shadow-xl">
+        <h2 class="mb-2 text-xl font-semibold">Automatically fetch checkouts?</h2>
+        <p class="mb-4 text-sm text-slate-600">
+            Auto-fetch periodically syncs this event's checkouts from Planning Center in the background, so check-ins stay current without manual refreshes. When enabled, the fetcher only runs during the check windows you'll set up next. When disabled, this event is only fetched when you refresh it manually. You can change this setting any time from the admin Events list.
+        </p>
+        <div id="auto-fetch-error" class="hidden mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"></div>
+        <label class="mb-6 flex cursor-pointer items-center gap-3 text-sm font-medium text-slate-700">
+            <span class="relative inline-flex h-5 w-9 items-center">
+                <input type="checkbox" id="auto-fetch-toggle" class="peer absolute opacity-0 w-0 h-0">
+                <span id="auto-fetch-toggle-bg" class="toggle-bg h-5 w-9 rounded-full" style="background-color: var(--color-slate-200)"></span>
+                <span id="auto-fetch-toggle-knob" class="toggle-knob absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow" style="transform: translateX(0)"></span>
+            </span>
+            Auto-fetch this event's checkouts
+        </label>
+        <div class="flex justify-end">
+            <button id="auto-fetch-continue" type="button" class="inline-flex cursor-pointer items-center gap-2 rounded-md border border-slate-800 bg-slate-800 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400">Continue</button>
+        </div>
+    </div>
+</div>
+
+<script src="/static/js/check-windows.js?v=dev"></script>
 <script src="/static/pages/admin/planningcenter-event.js?v=dev"></script>
 </body>
 </html>
