@@ -39,7 +39,7 @@ RUN GOOS=linux go build -o /app/nw-kids-checkout .
 FROM alpine:3.24
 
 # Install runtime dependencies: CA certs for TLS, SQLite libs/CLI
-RUN apk add --no-cache ca-certificates sqlite-libs sqlite
+RUN apk add --no-cache ca-certificates sqlite-libs sqlite tzdata
 
 WORKDIR /app
 
