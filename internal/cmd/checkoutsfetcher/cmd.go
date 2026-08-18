@@ -966,6 +966,15 @@ func localToUTCWeekMinutes(dayOfWeek, hour, minute int, timezone string, now tim
 		hour, minute, 0, 0, loc,
 	)
 
+	// time.Date resolves an ambiguous (DST fall-back) wall-clock time to one of
+	// the two occurrences; Go does not guarantee which. When it picks the later,
+	// post-transition occurrence, the same wall clock read one real hour earlier
+	// is identical, and the window boundary would extend an hour too long. Prefer
+	// the earlier occurrence so boundaries follow wall-clock semantics.
+	if earlier := targetTime.Add(-time.Hour); earlier.In(loc).Hour() == targetTime.In(loc).Hour() && earlier.In(loc).Minute() == targetTime.In(loc).Minute() {
+		targetTime = earlier
+	}
+
 	return int(targetTime.UTC().Sub(utcWeekStart).Minutes()), nil
 }
 

@@ -278,6 +278,14 @@ func (controller *Controller) PostCreateCheckWindow(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "invalid JSON")
 	}
 
+	if _, err := controller.repo.GetEventByID(c.Context(), eventID); err != nil {
+		if errors.Is(err, repo.ErrNotFound) {
+			return fiber.NewError(fiber.StatusNotFound, "event not found")
+		}
+		log.ErrorContext(c.Context(), "failed to get event for check window creation", slog.String("error", err.Error()), slog.Any("err", err))
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+
 	window := inputToCheckWindow(input, eventID)
 	created, err := controller.checkWindowRepo.CreateCheckWindow(c.Context(), window)
 	if err != nil {
@@ -309,6 +317,18 @@ func (controller *Controller) PutUpdateCheckWindow(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "invalid JSON")
 	}
 
+	current, err := controller.checkWindowRepo.GetCheckWindowByID(c.Context(), windowID)
+	if err != nil {
+		if errors.Is(err, repo.ErrNotFound) {
+			return fiber.NewError(fiber.StatusNotFound, "check window not found")
+		}
+		log.ErrorContext(c.Context(), "failed to get check window", slog.String("error", err.Error()), slog.Any("err", err))
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+	if current.EventID != eventID {
+		return fiber.NewError(fiber.StatusNotFound, "check window not found")
+	}
+
 	window := inputToCheckWindow(input, eventID)
 	window.ID = windowID
 
@@ -329,9 +349,25 @@ func (controller *Controller) PutUpdateCheckWindow(c *fiber.Ctx) error {
 func (controller *Controller) DeleteCheckWindow(c *fiber.Ctx) error {
 	log := middleware.GetLogger(c)
 
+	eventID, err := strconv.ParseInt(c.Params("eventId"), 10, 64)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid event id")
+	}
+
 	windowID, err := strconv.ParseInt(c.Params("windowId"), 10, 64)
 	if err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "invalid window id")
+	}
+
+	current, err := controller.checkWindowRepo.GetCheckWindowByID(c.Context(), windowID)
+	if err != nil {
+		if errors.Is(err, repo.ErrNotFound) {
+			return fiber.NewError(fiber.StatusNotFound, "check window not found")
+		}
+		return err
+	}
+	if current.EventID != eventID {
+		return fiber.NewError(fiber.StatusNotFound, "check window not found")
 	}
 
 	err = controller.checkWindowRepo.DeleteCheckWindow(c.Context(), windowID)

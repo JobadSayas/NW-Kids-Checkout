@@ -211,6 +211,71 @@ describe('check-windows shared modal', () => {
         expect(status.textContent).toBe('Check window created successfully');
     });
 
+    it('updates an existing window on edit form submit and closes the modal', async () => {
+        let putUrl = null;
+        let putBody = null;
+        const window = loadWindow(async (url, options = {}) => {
+            if (url.includes('/check-windows') && options.method === 'PUT') {
+                putUrl = url;
+                putBody = JSON.parse(options.body);
+                return response(200, {});
+            }
+            if (url.includes('/check-windows')) {
+                return windowsResponse();
+            }
+            return response(200, []);
+        });
+
+        await window.openCheckWindowsModal(1, 'Kids Check-in');
+        window.openEditWindow(5);
+
+        window.document.getElementById('start-time').value = '10:00';
+        window.document.getElementById('start-time-ampm').value = 'AM';
+        window.document.getElementById('end-time').value = '1:00';
+        window.document.getElementById('end-time-ampm').value = 'PM';
+        window.document.getElementById('window-form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+        await tick();
+
+        expect(putUrl).toBe('/v1/admin/events/1/check-windows/5');
+        expect(putBody).toEqual({
+            start_day_of_week: 1,
+            start_time: '10:00',
+            end_day_of_week: 1,
+            end_time: '13:00',
+            timezone: 'America/Chicago'
+        });
+        expect(window.document.getElementById('window-modal').classList.contains('hidden')).toBe(true);
+        const status = window.document.getElementById('page-status');
+        expect(status.textContent).toBe('Check window updated successfully');
+    });
+
+    it('shows the error message when saving a window fails', async () => {
+        const window = loadWindow(async (url, options = {}) => {
+            if (url.includes('/check-windows') && (options.method === 'PUT' || options.method === 'POST')) {
+                throw new Error('Request failed: 400');
+            }
+            if (url.includes('/check-windows')) {
+                return response(200, []);
+            }
+            return response(200, []);
+        });
+
+        await window.openCheckWindowsModal(1, 'Kids Check-in');
+        window.openAddWindow();
+
+        window.document.getElementById('start-time').value = '9:00';
+        window.document.getElementById('start-time-ampm').value = 'AM';
+        window.document.getElementById('end-time').value = '12:00';
+        window.document.getElementById('end-time-ampm').value = 'PM';
+        window.document.getElementById('window-form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+        await tick();
+
+        expect(window.document.getElementById('window-modal').classList.contains('hidden')).toBe(false);
+        const error = window.document.getElementById('modal-status');
+        expect(error.classList.contains('hidden')).toBe(false);
+        expect(error.textContent).toContain('Request failed');
+    });
+
     it('deletes a window after confirmation and closes the modal', async () => {
         let deleted = null;
         const window = loadWindow(async (url, options = {}) => {

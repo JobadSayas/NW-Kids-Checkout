@@ -1492,6 +1492,46 @@ func TestLocalToUTCWeekMinutes_DSTWeek_usesPerDateOffset(t *testing.T) {
 	assert.Equal(t, 9540, got, "Sunday 10:00 in the EST week is 15:00 UTC = 6 days + 15h after Monday 00:00 UTC")
 }
 
+func TestLocalToUTCWeekMinutes_FallBack_RepeatedHour_UsesEarlierOccurrence(t *testing.T) {
+	// On the UK fall-back night (2026-10-25, 02:00 BST -> 01:00 GMT) the local
+	// hour 01:00 occurs twice. A boundary at "Sunday 01:00" must resolve to the
+	// earlier occurrence, 01:00 BST = 00:00 UTC = 6 days after Monday 00:00 UTC,
+	// not to the post-transition 01:00 GMT. Otherwise a "Sat 23:00 -> Sun 01:00"
+	// window runs an hour too long on the repeated night.
+	now := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+
+	start, err := localToUTCWeekMinutes(6, 23, 0, "Europe/London", now)
+	require.NoError(t, err)
+	assert.Equal(t, 8520, start, "Sat 23:00 BST = 22:00 UTC = 5 days + 22h after Monday 00:00 UTC")
+
+	end, err := localToUTCWeekMinutes(7, 1, 0, "Europe/London", now)
+	require.NoError(t, err)
+	assert.Equal(t, 8640, end, "Sun 01:00 BST = 00:00 UTC = 6 days after Monday 00:00 UTC")
+}
+
+func Test_activeEventIDs_FallBack_RepeatedHour_DoesNotExtendWindow(t *testing.T) {
+	// Europe/London falls back at 2026-10-25 02:00 BST -> 01:00 GMT, so local
+	// 01:00 occurs twice. The window "Sat 23:00 -> Sun 01:00" must end at the
+	// first 01:00 (01:00 BST = 00:00 UTC); it must not stay active into the
+	// repeated hour.
+	windowsByEvent := map[int64][]eventcheckwindow.EventCheckWindow{
+		1: {
+			{StartDayOfWeek: 6, StartTime: "23:00", EndDayOfWeek: 7, EndTime: "01:00", Timezone: "Europe/London"},
+		},
+	}
+
+	// 00:30 UTC = 01:30 BST, inside the repeated hour but past the window end.
+	now := time.Date(2026, 10, 25, 0, 30, 0, 0, time.UTC)
+	active := activeEventIDs(slog.Default(), windowsByEvent, now)
+	assert.False(t, active[1], "window ended at 01:00 BST; must not be active at 01:30 BST")
+
+	// Saturday 22:30 UTC = 23:30 BST on a normal night (no transition) is inside
+	// the window.
+	normal := time.Date(2026, 10, 17, 22, 30, 0, 0, time.UTC)
+	activeNormal := activeEventIDs(slog.Default(), windowsByEvent, normal)
+	assert.True(t, activeNormal[1], "window Sat 23:00 BST -> Sun 01:00 BST must be active at 23:30 BST on a normal night")
+}
+
 func TestLocalToUTCWeekMinutes_SameDay(t *testing.T) {
 	now := time.Date(2026, 3, 25, 12, 0, 0, 0, time.UTC)
 
@@ -1578,6 +1618,13 @@ func TestMergeWindows(t *testing.T) {
 			},
 			wantLen: 1,
 		},
+		{
+			name: "splits true Sunday/Monday crossing into two ranges",
+			checkWindows: []eventcheckwindow.EventCheckWindow{
+				{StartDayOfWeek: 7, StartTime: "22:00", EndDayOfWeek: 1, EndTime: "02:00", Timezone: "UTC"},
+			},
+			wantLen: 2,
+		},
 	}
 
 	for _, tt := range tests {
@@ -1636,11 +1683,19 @@ func Test_eventCheckoutLoop_windowMergeError_logsViaContextLogger(t *testing.T) 
 		},
 	}
 
-	svc := testService(checkWindowRepo, eventRepo, &checkin.MockRepo{}, &planningcenter.MockClient{}, &sync.Map{}, 5*time.Minute, true)
+	pcClient := &planningcenter.MockClient{
+		GetCheckoutsForEventFunc: func(ctx context.Context, eventID string, checkedOutOnOrAfter time.Time, limit int) ([]planningcenter.Checkout, error) {
+			t.Fatal("event with a merge-failing window must not be fetched")
+			return nil, nil
+		},
+	}
+
+	svc := testService(checkWindowRepo, eventRepo, &checkin.MockRepo{}, pcClient, &sync.Map{}, 5*time.Minute, true)
 	err := svc.eventCheckoutLoop(logCtx, nil)
 	require.NoError(t, err)
 
 	assert.True(t, capture.ContainsWarn("could not merge check windows for event"), "window merge failure should be logged via the context logger")
+	assert.Equal(t, uint64(0), pcClient.GetCheckoutsForEventFuncCallCount.Load(), "event whose window fails to merge must be skipped, not fetched")
 }
 
 func Test_resolveLookBackTime_logsWarningViaLogger(t *testing.T) {

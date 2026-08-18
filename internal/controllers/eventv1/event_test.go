@@ -10,6 +10,7 @@ import (
 
 	"kids-checkin/internal/client/planningcenter"
 	"kids-checkin/internal/db"
+	"kids-checkin/internal/repo/eventcheckwindow"
 
 	"github.com/Masterminds/squirrel"
 	"github.com/gofiber/fiber/v2"
@@ -378,6 +379,23 @@ func TestController_PostCreateCheckWindow(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, fiber.StatusBadRequest, resp.StatusCode)
 	})
+
+	t.Run("event does not exist", func(t *testing.T) {
+		payload := EventCheckWindowInput{
+			StartDayOfWeek: 1,
+			StartTime:      "09:00",
+			EndDayOfWeek:   1,
+			EndTime:        "12:00",
+			Timezone:       "America/Los_Angeles",
+		}
+		body, _ := json.Marshal(payload)
+
+		req := httptest.NewRequest("POST", fmt.Sprintf("/v1/admin/events/%d/check-windows", 999999), bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		assert.Equal(t, fiber.StatusNotFound, resp.StatusCode)
+	})
 }
 
 func TestController_PutUpdateCheckWindow(t *testing.T) {
@@ -445,6 +463,72 @@ func TestController_PutUpdateCheckWindow(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, fiber.StatusNotFound, resp.StatusCode)
 	})
+
+	t.Run("invalid window id", func(t *testing.T) {
+		payload := EventCheckWindowInput{
+			StartDayOfWeek: 1,
+			StartTime:      "10:00",
+			EndDayOfWeek:   1,
+			EndTime:        "13:00",
+			Timezone:       "America/Los_Angeles",
+		}
+		body, _ := json.Marshal(payload)
+
+		req := httptest.NewRequest("PUT", fmt.Sprintf("/v1/admin/events/%d/check-windows/not-a-number", eventID), bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		assert.Equal(t, fiber.StatusBadRequest, resp.StatusCode)
+	})
+
+	t.Run("window belongs to another event", func(t *testing.T) {
+		otherEventRes, err := squirrel.Insert("events").
+			RunWith(testDB).
+			Columns("name", "planning_center_id").
+			Values("Wednesday Service", "pc_evt_other").
+			ExecContext(t.Context())
+		require.NoError(t, err)
+		otherEventID, _ := otherEventRes.LastInsertId()
+
+		ownedRes, err := squirrel.Insert("event_check_windows").
+			RunWith(testDB).
+			Columns("event_id", "start_day_of_week", "start_time", "end_day_of_week", "end_time", "timezone").
+			Values(eventID, 1, "09:00", 1, "12:00", "America/Los_Angeles").
+			ExecContext(t.Context())
+		require.NoError(t, err)
+		ownedWindowID, _ := ownedRes.LastInsertId()
+
+		payload := EventCheckWindowInput{
+			StartDayOfWeek: 2,
+			StartTime:      "10:00",
+			EndDayOfWeek:   2,
+			EndTime:        "13:00",
+			Timezone:       "America/Los_Angeles",
+		}
+		body, _ := json.Marshal(payload)
+
+		// ownedWindowID belongs to eventID; the URL uses a different event, so
+		// the update must be rejected rather than silently mutating another
+		// event's window.
+		req := httptest.NewRequest("PUT", fmt.Sprintf("/v1/admin/events/%d/check-windows/%d", otherEventID, ownedWindowID), bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		assert.Equal(t, fiber.StatusNotFound, resp.StatusCode)
+
+		// The window must be untouched and still owned by the original event.
+		var stored eventcheckwindow.EventCheckWindow
+		err = squirrel.Select("event_id", "start_day_of_week", "start_time", "end_day_of_week", "end_time", "timezone").
+			From("event_check_windows").
+			Where(squirrel.Eq{"id": ownedWindowID}).
+			RunWith(testDB).
+			QueryRowContext(t.Context()).
+			Scan(&stored.EventID, &stored.StartDayOfWeek, &stored.StartTime, &stored.EndDayOfWeek, &stored.EndTime, &stored.Timezone)
+		require.NoError(t, err)
+		assert.Equal(t, eventID, stored.EventID)
+		assert.Equal(t, "09:00", stored.StartTime)
+		assert.Equal(t, "12:00", stored.EndTime)
+	})
 }
 
 func TestController_DeleteCheckWindow(t *testing.T) {
@@ -485,6 +569,48 @@ func TestController_DeleteCheckWindow(t *testing.T) {
 		resp, err := app.Test(req)
 		require.NoError(t, err)
 		assert.Equal(t, fiber.StatusNotFound, resp.StatusCode)
+	})
+
+	t.Run("invalid window id", func(t *testing.T) {
+		req := httptest.NewRequest("DELETE", fmt.Sprintf("/v1/admin/events/%d/check-windows/not-a-number", eventID), nil)
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		assert.Equal(t, fiber.StatusBadRequest, resp.StatusCode)
+	})
+
+	t.Run("window belongs to another event", func(t *testing.T) {
+		otherEventRes, err := squirrel.Insert("events").
+			RunWith(testDB).
+			Columns("name", "planning_center_id").
+			Values("Wednesday Service", "pc_evt_other").
+			ExecContext(t.Context())
+		require.NoError(t, err)
+		otherEventID, _ := otherEventRes.LastInsertId()
+
+		ownedRes, err := squirrel.Insert("event_check_windows").
+			RunWith(testDB).
+			Columns("event_id", "start_day_of_week", "start_time", "end_day_of_week", "end_time", "timezone").
+			Values(eventID, 1, "09:00", 1, "12:00", "America/Los_Angeles").
+			ExecContext(t.Context())
+		require.NoError(t, err)
+		ownedWindowID, _ := ownedRes.LastInsertId()
+
+		// ownedWindowID belongs to eventID; the URL uses a different event, so
+		// the delete must be rejected rather than removing another event's window.
+		req := httptest.NewRequest("DELETE", fmt.Sprintf("/v1/admin/events/%d/check-windows/%d", otherEventID, ownedWindowID), nil)
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		assert.Equal(t, fiber.StatusNotFound, resp.StatusCode)
+
+		var count int
+		err = squirrel.Select("COUNT(*)").
+			From("event_check_windows").
+			Where(squirrel.Eq{"id": ownedWindowID}).
+			RunWith(testDB).
+			QueryRowContext(t.Context()).
+			Scan(&count)
+		require.NoError(t, err)
+		assert.Equal(t, 1, count, "window must still exist after rejected cross-event delete")
 	})
 }
 
