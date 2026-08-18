@@ -73,4 +73,4 @@ EXPOSE $PORT
 
 # Default runs apiserver. Build with --build-arg RUN_MODE=checkout-fetcher
 # (or set the RUN_MODE env var at runtime) to run the fetcher as a service.
-CMD ["sh", "-c", "if [ \"$RUN_MODE\" = \"checkout-fetcher\" ]; then exec ./nw-kids-checkout checkout-fetcher --service; else exec ./nw-kids-checkout apiserver; fi"]
+CMD ["sh", "-c", "if [ \"$RUN_MODE\" = \"checkout-fetcher\" ]; then exec ./nw-kids-checkout checkout-fetcher --service --use-check-windows; else exec ./nw-kids-checkout apiserver; fi"]
