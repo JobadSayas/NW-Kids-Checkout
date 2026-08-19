@@ -46,6 +46,9 @@ type Repo interface {
 	UpdateLocation(ctx context.Context, location Location) error
 	DeleteLocation(ctx context.Context, id int64) error
 	ListLocationGroups(ctx context.Context, filter LocationGroupFilter) ([]LocationGroup, error)
+	CreateLocationGroup(ctx context.Context, lg LocationGroup) (LocationGroup, error)
+	UpdateLocationGroup(ctx context.Context, lg LocationGroup) error
+	DeleteLocationGroup(ctx context.Context, id int64) error
 }
 
 type sqliteRepo struct {
@@ -106,6 +109,66 @@ func (r *sqliteRepo) CreateLocationGroup(ctx context.Context, lg LocationGroup) 
 	}
 	lg.ID, _ = res.LastInsertId()
 	return lg, nil
+}
+
+func (r *sqliteRepo) UpdateLocationGroup(ctx context.Context, lg LocationGroup) error {
+	result, err := squirrel.Update("location_groups").
+		Set("name", lg.Name).
+		Where(squirrel.Eq{"id": lg.ID}).
+		RunWith(r.db).
+		ExecContext(ctx)
+	if err != nil {
+		return fmt.Errorf("updating location group: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("reading updated rows: %w", err)
+	}
+	if rows == 0 {
+		return repo.ErrNotFound
+	}
+	return nil
+}
+
+func (r *sqliteRepo) DeleteLocationGroup(ctx context.Context, id int64) error {
+	for _, table := range []string{"locations", "events"} {
+		count, err := r.countWhere(ctx, table, squirrel.Eq{"location_group_id": id})
+		if err != nil {
+			return fmt.Errorf("checking %s references: %w", table, err)
+		}
+		if count > 0 {
+			return ErrLocationGroupInUse
+		}
+	}
+	result, err := squirrel.Delete("location_groups").
+		Where(squirrel.Eq{"id": id}).
+		RunWith(r.db).
+		ExecContext(ctx)
+	if err != nil {
+		return fmt.Errorf("deleting location group: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("reading deleted rows: %w", err)
+	}
+	if rows == 0 {
+		return repo.ErrNotFound
+	}
+	return nil
+}
+
+func (r *sqliteRepo) countWhere(ctx context.Context, table string, cond squirrel.Sqlizer) (int, error) {
+	var count int
+	err := squirrel.Select("COUNT(*)").
+		From(table).
+		Where(cond).
+		RunWith(r.db).
+		QueryRowContext(ctx).
+		Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
 }
 
 func (r *sqliteRepo) ListLocations(ctx context.Context, filter LocationFilter) ([]Location, error) {
@@ -177,6 +240,8 @@ func (r *sqliteRepo) ListLocations(ctx context.Context, filter LocationFilter) (
 	}
 	return locations, nil
 }
+
+var ErrLocationGroupInUse = errors.New("location group is in use")
 
 var ErrLocationExists = errors.New("location with Planning Center ID already exists")
 

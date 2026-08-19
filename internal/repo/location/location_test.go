@@ -345,3 +345,68 @@ func Test_sqliteRepo_CreateLocationGroup(t *testing.T) {
 	require.Len(t, groups, 1)
 	assert.Equal(t, first.ID, groups[0].ID)
 }
+
+func Test_sqliteRepo_UpdateLocationGroup(t *testing.T) {
+	testDB, cleanup, err := db.PrepareTestDB()
+	require.NoError(t, err, "Failed to prepare test DB")
+	t.Cleanup(cleanup)
+	s := &sqliteRepo{db: testDB}
+
+	created, err := s.CreateLocationGroup(t.Context(), LocationGroup{Name: "group-rename"})
+	require.NoError(t, err)
+
+	err = s.UpdateLocationGroup(t.Context(), LocationGroup{ID: created.ID, Name: "group-renamed"})
+	require.NoError(t, err)
+
+	groups, err := s.ListLocationGroups(t.Context(), LocationGroupFilter{})
+	require.NoError(t, err)
+	require.Len(t, groups, 1)
+	assert.Equal(t, "group-renamed", groups[0].Name)
+}
+
+func Test_sqliteRepo_UpdateLocationGroup_not_found(t *testing.T) {
+	testDB, cleanup, err := db.PrepareTestDB()
+	require.NoError(t, err, "Failed to prepare test DB")
+	t.Cleanup(cleanup)
+	s := &sqliteRepo{db: testDB}
+
+	err = s.UpdateLocationGroup(t.Context(), LocationGroup{ID: 999999, Name: "missing"})
+	assert.ErrorIs(t, err, repo.ErrNotFound)
+}
+
+func Test_sqliteRepo_DeleteLocationGroup_in_use(t *testing.T) {
+	testDB, cleanup, err := db.PrepareTestDB()
+	require.NoError(t, err, "Failed to prepare test DB")
+	t.Cleanup(cleanup)
+	s := &sqliteRepo{db: testDB}
+
+	group, err := s.CreateLocationGroup(t.Context(), LocationGroup{Name: "group-in-use"})
+	require.NoError(t, err)
+
+	_, err = s.CreateLocation(t.Context(), Location{
+		PlanningCenterID: "pcloc_in_use",
+		EventID:          1,
+		LocationGroupID:  &group.ID,
+		Name:             "In Use Room",
+	})
+	require.NoError(t, err)
+
+	err = s.DeleteLocationGroup(t.Context(), group.ID)
+	assert.ErrorIs(t, err, ErrLocationGroupInUse)
+}
+
+func Test_sqliteRepo_DeleteLocationGroup_unused(t *testing.T) {
+	testDB, cleanup, err := db.PrepareTestDB()
+	require.NoError(t, err, "Failed to prepare test DB")
+	t.Cleanup(cleanup)
+	s := &sqliteRepo{db: testDB}
+
+	group, err := s.CreateLocationGroup(t.Context(), LocationGroup{Name: "group-unused"})
+	require.NoError(t, err)
+
+	err = s.DeleteLocationGroup(t.Context(), group.ID)
+	require.NoError(t, err)
+
+	err = s.DeleteLocationGroup(t.Context(), group.ID)
+	assert.ErrorIs(t, err, repo.ErrNotFound)
+}

@@ -95,7 +95,7 @@
             
             <!-- Cards Container -->
             <div class="w-full max-w-6xl mx-auto">
-                <div class="flex flex-col md:flex-row items-center justify-center gap-8">
+                <div id="department-cards" class="flex flex-col md:flex-row items-center justify-center gap-8">
                     
                     <!-- Kids Jr Card -->
                     <a href="/v1/checkins/checkouts?location_group_name=Kids Jr&checked_out_after=-31m"
@@ -145,84 +145,6 @@
 
     </div>
 
-    <script>
-        function setupMenu() {
-            const menuButton = document.getElementById("menu-button");
-            const menu = document.getElementById("kebab-menu");
-
-            if (!menuButton || !menu) {
-                return;
-            }
-
-            function closeMenu() {
-                menu.classList.add("hidden");
-                menuButton.setAttribute("aria-expanded", "false");
-            }
-
-            function toggleMenu(event) {
-                event.stopPropagation();
-                const isOpen = !menu.classList.contains("hidden");
-                if (isOpen) {
-                    closeMenu();
-                    return;
-                }
-                menu.classList.remove("hidden");
-                menuButton.setAttribute("aria-expanded", "true");
-            }
-
-            menuButton.addEventListener("click", toggleMenu);
-            menu.querySelectorAll("a").forEach((link) => {
-                link.addEventListener("click", () => {
-                    closeMenu();
-                });
-            });
-            document.addEventListener("click", (event) => {
-                if (menu.classList.contains("hidden")) {
-                    return;
-                }
-                if (!menu.contains(event.target)) {
-                    closeMenu();
-                }
-            });
-            document.addEventListener("keydown", (event) => {
-                if (event.key === "Escape") {
-                    closeMenu();
-                }
-            });
-        }
-
-        async function revealAdminLink() {
-            try {
-                const response = await fetch("/api/session", { credentials: "same-origin" });
-                const loginLink = document.getElementById("login-link");
-                const logoutLink = document.getElementById("logout-link");
-                const adminLink = document.getElementById("admin-link");
-                if (!loginLink || !logoutLink || !adminLink) {
-                    return;
-                }
-                if (!response.ok) {
-                    loginLink.classList.remove("hidden");
-                    logoutLink.classList.add("hidden");
-                    return;
-                }
-                const data = await response.json();
-                if (!data || !data.authenticated) {
-                    loginLink.classList.remove("hidden");
-                    logoutLink.classList.add("hidden");
-                    return;
-                }
-                loginLink.classList.add("hidden");
-                logoutLink.classList.remove("hidden");
-                if (data.role === "admin") {
-                    adminLink.classList.remove("hidden");
-                }
-            } catch (error) {
-                return;
-            }
-        }
-
-        setupMenu();
-        revealAdminLink();
-    </script>
+    <script src="/static/pages/home/home.js?v=dev"></script>
 </body>
 </html>

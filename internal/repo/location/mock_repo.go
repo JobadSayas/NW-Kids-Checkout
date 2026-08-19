@@ -1,6 +1,10 @@
 package location
 
-import "context"
+import (
+	"context"
+
+	"kids-checkin/internal/repo"
+)
 
 type MockRepo struct {
 	ListLocationsFunc          func(ctx context.Context, filter LocationFilter) ([]Location, error)
@@ -17,6 +21,15 @@ type MockRepo struct {
 
 	ListLocationGroupsFunc          func(ctx context.Context, filter LocationGroupFilter) ([]LocationGroup, error)
 	ListLocationGroupsFuncCallCount int
+
+	CreateLocationGroupFunc          func(ctx context.Context, lg LocationGroup) (LocationGroup, error)
+	CreateLocationGroupFuncCallCount int
+
+	UpdateLocationGroupFunc          func(ctx context.Context, lg LocationGroup) error
+	UpdateLocationGroupFuncCallCount int
+
+	DeleteLocationGroupFunc          func(ctx context.Context, id int64) error
+	DeleteLocationGroupFuncCallCount int
 }
 
 func (repo *MockRepo) ListLocations(ctx context.Context, filter LocationFilter) ([]Location, error) {
@@ -57,4 +70,28 @@ func (repo *MockRepo) ListLocationGroups(ctx context.Context, filter LocationGro
 	}
 
 	panic("MockRepo.ListLocationGroups not implemented")
+}
+
+func (repo *MockRepo) CreateLocationGroup(ctx context.Context, lg LocationGroup) (LocationGroup, error) {
+	repo.CreateLocationGroupFuncCallCount++
+	if repo.CreateLocationGroupFunc != nil {
+		return repo.CreateLocationGroupFunc(ctx, lg)
+	}
+	panic("MockRepo.CreateLocationGroup not implemented")
+}
+
+func (m *MockRepo) UpdateLocationGroup(ctx context.Context, lg LocationGroup) error {
+	m.UpdateLocationGroupFuncCallCount++
+	if m.UpdateLocationGroupFunc != nil {
+		return m.UpdateLocationGroupFunc(ctx, lg)
+	}
+	return repo.ErrNotFound
+}
+
+func (m *MockRepo) DeleteLocationGroup(ctx context.Context, id int64) error {
+	m.DeleteLocationGroupFuncCallCount++
+	if m.DeleteLocationGroupFunc != nil {
+		return m.DeleteLocationGroupFunc(ctx, id)
+	}
+	return ErrLocationGroupInUse
 }

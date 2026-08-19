@@ -2,11 +2,15 @@ package locationgroupv1
 
 import (
 	"database/sql"
-	"kids-checkin/internal/controllers/middleware"
-	"kids-checkin/internal/controllers/session"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 
+	"kids-checkin/internal/controllers/middleware"
+	"kids-checkin/internal/controllers/session"
+	"kids-checkin/internal/repo"
 	"kids-checkin/internal/repo/location"
 
 	"github.com/gofiber/fiber/v2"
@@ -25,10 +29,72 @@ func NewController(db *sql.DB, sessionStore session.Storer) *Controller {
 }
 
 func (controller *Controller) RegisterRoutes(app *fiber.App) {
-	locationGroup := app.Group("/v1/location_groups")
-	locationGroup.Use(middleware.AuthRequired(controller.sessionStore, ""))
+	app.Get("/v1/location_groups", controller.GetListLocationGroups)
 
-	locationGroup.Get("", controller.GetListLocationGroups)
+	adminGroup := app.Group("/v1/admin/location_groups")
+	adminGroup.Use(middleware.AuthRequired(controller.sessionStore, "admin"))
+	adminGroup.Post("", controller.PostCreateLocationGroup)
+	adminGroup.Patch("/:id", controller.PatchUpdateLocationGroup)
+	adminGroup.Delete("/:id", controller.DeleteLocationGroup)
+}
+
+type LocationGroupInput struct {
+	Name string `json:"name"`
+}
+
+func (controller *Controller) PostCreateLocationGroup(c *fiber.Ctx) error {
+	var input LocationGroupInput
+	if err := json.Unmarshal(c.Body(), &input); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid JSON")
+	}
+	input.Name = strings.TrimSpace(input.Name)
+	if input.Name == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "name is required")
+	}
+	created, err := controller.repo.CreateLocationGroup(c.Context(), location.LocationGroup{Name: input.Name})
+	if err != nil {
+		return fmt.Errorf("creating location group: %w", err)
+	}
+	return c.Status(fiber.StatusCreated).JSON(repoLocationGroupToOutput(created))
+}
+
+func (controller *Controller) PatchUpdateLocationGroup(c *fiber.Ctx) error {
+	id, err := c.ParamsInt("id")
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid location group id")
+	}
+	var input LocationGroupInput
+	if err := json.Unmarshal(c.Body(), &input); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid JSON")
+	}
+	input.Name = strings.TrimSpace(input.Name)
+	if input.Name == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "name is required")
+	}
+	if err := controller.repo.UpdateLocationGroup(c.Context(), location.LocationGroup{ID: int64(id), Name: input.Name}); err != nil {
+		if errors.Is(err, repo.ErrNotFound) {
+			return fiber.NewError(fiber.StatusNotFound, "location group not found")
+		}
+		return fmt.Errorf("updating location group: %w", err)
+	}
+	return c.SendStatus(fiber.StatusNoContent)
+}
+
+func (controller *Controller) DeleteLocationGroup(c *fiber.Ctx) error {
+	id, err := c.ParamsInt("id")
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid location group id")
+	}
+	if err := controller.repo.DeleteLocationGroup(c.Context(), int64(id)); err != nil {
+		if errors.Is(err, location.ErrLocationGroupInUse) {
+			return fiber.NewError(fiber.StatusBadRequest, "location group is in use")
+		}
+		if errors.Is(err, repo.ErrNotFound) {
+			return fiber.NewError(fiber.StatusNotFound, "location group not found")
+		}
+		return fmt.Errorf("deleting location group: %w", err)
+	}
+	return c.SendStatus(fiber.StatusNoContent)
 }
 
 func (controller *Controller) GetListLocationGroups(c *fiber.Ctx) error {

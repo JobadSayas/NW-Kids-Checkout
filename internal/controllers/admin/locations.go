@@ -23,6 +23,7 @@ func (controller *Controller) RegisterRoutes(app *fiber.App) {
 	adminGroup.Use(middleware.AuthRequired(controller.sessionStore, "admin"))
 	adminGroup.Get("/", controller.GetLanding)
 	adminGroup.Get("/locations", controller.GetLocations)
+	adminGroup.Get("/location-groups", controller.GetLocationGroups)
 	adminGroup.Get("/planningcenter/events", controller.GetPlanningCenterEvents)
 	adminGroup.Get("/planningcenter/events/:id", controller.GetPlanningCenterEvent)
 }
@@ -40,6 +41,17 @@ func (controller *Controller) GetLanding(c *fiber.Ctx) error {
 
 func (controller *Controller) GetLocations(c *fiber.Ctx) error {
 	f, err := static.EmbeddedFS.Open("pages/admin/locations.html")
+	if err != nil {
+		return fiber.ErrInternalServerError
+	}
+	defer f.Close()
+
+	c.Type("html")
+	return c.SendStream(f)
+}
+
+func (controller *Controller) GetLocationGroups(c *fiber.Ctx) error {
+	f, err := static.EmbeddedFS.Open("pages/admin/location-groups.html")
 	if err != nil {
 		return fiber.ErrInternalServerError
 	}

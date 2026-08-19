@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NW Kids - Location Groups</title>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico"/>
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png"/>
+    <link rel="manifest" href="/manifest.webmanifest"/>
+    <link rel="stylesheet" href="/static/css/tailwind.css?v=dev">
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-slate-50 text-slate-900">
+<div class="max-w-4xl mx-auto px-6 py-10">
+    <header class="flex flex-col gap-2 mb-8">
+        <div class="flex items-center gap-3">
+            <a href="/admin">
+                <img src="/static/img/NWKids-logo.svg" alt="NWKids Logo" class="h-16 md:h-24 w-auto">
+            </a>
+            <h1 class="text-3xl font-semibold">Location Groups</h1>
+        </div>
+        <p class="text-sm text-slate-600">Create, rename, and delete location groups used to organize locations and events.</p>
+    </header>
+
+    <div id="page-status" class="hidden mb-4 rounded-md border border-slate-200 bg-white px-4 py-3 text-sm"></div>
+
+    <section class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <h2 class="mb-3 text-lg font-semibold text-slate-800">Location Groups</h2>
+        <div id="location-groups-list" class="mb-3 space-y-2"></div>
+        <div class="flex items-center gap-2">
+            <input
+                id="new-group-name"
+                type="text"
+                placeholder="New group name"
+                class="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none"
+            />
+            <button
+                id="add-group-button"
+                class="rounded-lg bg-slate-800 px-3 py-2 text-sm font-medium text-white hover:bg-slate-700"
+            >
+                Add Group
+            </button>
+        </div>
+    </section>
+
+    <div class="mt-10">
+        <a href="/admin/locations"
+            class="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-900">
+            <span aria-hidden="true">←</span>
+            Back to locations
+        </a>
+    </div>
+</div>
+
+<script src="/static/pages/admin/location-groups.js?v=dev"></script>
+</body>
+</html>

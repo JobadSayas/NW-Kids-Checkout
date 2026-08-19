@@ -34,6 +34,7 @@ func TestController_AdminPages(t *testing.T) {
 	paths := []string{
 		"/admin",
 		"/admin/locations",
+		"/admin/location-groups",
 		"/admin/planningcenter/events",
 		"/admin/planningcenter/events/evt-1",
 	}
