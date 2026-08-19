@@ -170,6 +170,16 @@ function setSearchQuery(query) {
     updateUI();
 }
 
+function setHideConfirmed(hidden) {
+    hideConfirmed = Boolean(hidden);
+    const button = document.getElementById('toggle-confirmed-button');
+    if (button) {
+        button.textContent = hideConfirmed ? 'Show confirmed' : 'Hide confirmed';
+        button.setAttribute('aria-pressed', String(hideConfirmed));
+    }
+    updateUI();
+}
+
 function syncConfirmedStates() {
     if (!childrenData.length) return;
 
@@ -554,6 +564,9 @@ document.addEventListener('DOMContentLoaded', function () {
 
     const searchInput = document.getElementById('search-input');
     if (searchInput) searchInput.addEventListener('input', () => setSearchQuery(searchInput.value));
+
+    const toggleButton = document.getElementById('toggle-confirmed-button');
+    if (toggleButton) toggleButton.addEventListener('click', () => setHideConfirmed(!hideConfirmed));
 
     document.addEventListener('change', function (event) {
         const checkbox = event.target;

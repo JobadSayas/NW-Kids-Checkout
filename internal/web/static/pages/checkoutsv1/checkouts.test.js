@@ -17,7 +17,9 @@ window.__test = {
     updateUI: () => updateUI(),
     setConfirmationOverride: (childId, confirmed) => setConfirmationOverride(childId, confirmed),
     setSearchQuery: (query) => setSearchQuery(query),
+    setHideConfirmed: (hidden) => setHideConfirmed(hidden),
     getVisibleChildren: () => getVisibleChildren(),
+    getChildrenData: () => childrenData,
     computeNewChildIds: (children) => computeNewChildIds(children),
     getFlashChildIds: () => flashChildIds,
     setFlashChildIds: (ids) => { flashChildIds = ids; },
@@ -308,6 +310,50 @@ describe('checkoutsv1/checkouts', () => {
         window.__test.setDom();
         window.__test.setSearchQuery('zzz');
         expect(window.document.getElementById('children-list').innerHTML).toContain('No matching children');
+    });
+
+    it('setHideConfirmed filters confirmed children from view without deleting them', () => {
+        const window = loadWindow();
+        window.__test.setChildrenData([
+            { id: 'pc:1', first_name: 'A', last_name: 'B', security_code: '1', source: 'planning_center', checked_out_confirmed_at: '2026-08-18T10:00:00Z' },
+            { id: 'pc:2', first_name: 'C', last_name: 'D', security_code: '2', source: 'planning_center', checked_out_confirmed_at: null }
+        ]);
+        window.__test.setHideConfirmed(true);
+        const visible = window.__test.getVisibleChildren();
+        expect(visible.map((c) => c.id)).toEqual(['pc:2']);
+        expect(window.__test.getChildrenData()).toHaveLength(2);
+    });
+
+    it('setHideConfirmed(false) shows confirmed children again', () => {
+        const window = loadWindow();
+        window.__test.setChildrenData([
+            { id: 'pc:1', first_name: 'A', last_name: 'B', security_code: '1', source: 'planning_center', checked_out_confirmed_at: '2026-08-18T10:00:00Z' },
+            { id: 'pc:2', first_name: 'C', last_name: 'D', security_code: '2', source: 'planning_center', checked_out_confirmed_at: null }
+        ]);
+        window.__test.setHideConfirmed(true);
+        window.__test.setHideConfirmed(false);
+        expect(window.__test.getVisibleChildren()).toHaveLength(2);
+    });
+
+    it('toggle button label reflects state', () => {
+        const window = loadWindow({ html: '<!doctype html><html><body><button id="toggle-confirmed-button" aria-pressed="false">Hide confirmed</button></body></html>' });
+        window.__test.setHideConfirmed(true);
+        const button = window.document.getElementById('toggle-confirmed-button');
+        expect(button.textContent).toBe('Show confirmed');
+        expect(button.getAttribute('aria-pressed')).toBe('true');
+        window.__test.setHideConfirmed(false);
+        expect(button.textContent).toBe('Hide confirmed');
+        expect(button.getAttribute('aria-pressed')).toBe('false');
+    });
+
+    it('renders no-unconfirmed message when hiding confirmed empties the board', () => {
+        const window = loadWindow();
+        window.__test.setChildrenData([
+            { id: 'pc:1', first_name: 'A', last_name: 'B', security_code: '1', source: 'planning_center', checked_out_confirmed_at: '2026-08-18T10:00:00Z' }
+        ]);
+        window.__test.setHideConfirmed(true);
+        const html = window.renderChildren(window.__test.getVisibleChildren(), Date.now(), false);
+        expect(html).toContain('No unconfirmed children');
     });
 
     it('computeNewChildIds seeds on first call and detects later additions', () => {

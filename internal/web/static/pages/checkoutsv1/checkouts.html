@@ -82,6 +82,16 @@
             class="w-full max-w-md rounded-lg border border-slate-300 bg-white px-4 py-2 text-xl shadow-sm focus:border-slate-500 focus:outline-none"
         />
     </div>
+    <div class="relative z-10 flex justify-center pb-2">
+        <button
+            id="toggle-confirmed-button"
+            type="button"
+            aria-pressed="false"
+            class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+        >
+            Hide confirmed
+        </button>
+    </div>
     <!-- Scrollable children list (list on mobile, grid on desktop) -->
     <div id="children-list" class="grid grid-cols-1 gap-3 px-4 py-4 md:grid-cols-2 lg:flex-1 lg:min-h-0 lg:overflow-y-auto lg:content-start lg:grid-cols-3">
         <!-- Cards will be dynamically inserted here -->
