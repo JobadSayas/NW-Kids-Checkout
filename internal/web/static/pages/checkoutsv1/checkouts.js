@@ -9,7 +9,11 @@ let childTimeElementsById = new Map();
 let lastListSignature = null;
 let searchQuery = '';
 let hideConfirmed = false;
+let knownChildIds = new Set();
+let flashChildIds = new Set();
+let flashTimeoutId = null;
 const CONFIRM_OVERRIDE_TTL_MS = 15000;
+const FLASH_RESET_DELAY_MS = 4000;
 const confirmationOverrides = new Map();
 const dom = {
     childrenList: null,
@@ -45,6 +49,39 @@ function getChildId(child) {
     if (child.planning_center_id) return `pc:${child.planning_center_id}`;
     if (child.public_id) return `public:${child.public_id}`;
     return '';
+}
+
+function computeNewChildIds(children) {
+    const currentIds = new Set(children.map(getChildId).filter(Boolean));
+    const newlyAppeared = new Set();
+    if (knownChildIds.size > 0) {
+        currentIds.forEach((id) => {
+            if (!knownChildIds.has(id)) newlyAppeared.add(id);
+        });
+    }
+    knownChildIds = currentIds;
+    return newlyAppeared;
+}
+
+function resetFlashClasses(container) {
+    const flashed = container.querySelectorAll('.child-card-flash');
+    if (flashed.length === 0) return;
+    flashed.forEach((element) => {
+        element.classList.remove('child-card-flash');
+    });
+    void container.offsetHeight;
+}
+
+function clearFlashStyles() {
+    flashChildIds = new Set();
+    if (flashTimeoutId) {
+        clearTimeout(flashTimeoutId);
+        flashTimeoutId = null;
+    }
+    const list = document.getElementById('children-list');
+    if (list) {
+        resetFlashClasses(list);
+    }
 }
 
 function normalizeCheckoutsResponse(data) {
@@ -352,6 +389,12 @@ async function fetchChildrenData() {
             .sort((a, b) => b.checked_out_at_ms - a.checked_out_at_ms);
 
         childrenData = sortedData;
+        const newIds = computeNewChildIds(childrenData);
+        if (newIds.size > 0) {
+            flashChildIds = newIds;
+            clearTimeout(flashTimeoutId);
+            flashTimeoutId = setTimeout(clearFlashStyles, FLASH_RESET_DELAY_MS);
+        }
         const confirmedById = new Map();
         childrenData.forEach((child) => {
             const childId = getChildId(child);
@@ -402,6 +445,7 @@ function updateUI() {
     const listSignature = hideConfirmed + '||' + searchQuery + '||' + visibleChildren.slice(0, 100).map(getChildSignature).join('||');
     if (dom.childrenList && listSignature !== lastListSignature) {
         const previousScrollTop = dom.childrenList.scrollTop;
+        resetFlashClasses(dom.childrenList);
         const markup = renderChildren(visibleChildren.slice(0, 100), nowMs, Boolean(searchQuery));
         morphChildren(dom.childrenList, markup);
         cacheChildTimeElements(dom.childrenList);
@@ -436,9 +480,10 @@ function renderChildren(children, nowMs, searchActive) {
         const starMarkup = getManualCheckinStarMarkup(child.source);
         const childId = escapeHtml(getChildId(child));
         const checkedOutAtMs = child.checked_out_at_ms ?? getCheckedOutTimestamp(child.checked_out_at);
+        const flashClass = flashChildIds.has(childId) ? ' child-card-flash' : '';
 
         return `
-            <div class="bg-white rounded-lg py-2.5 px-4 shadow-[0_0_10px_rgba(0,0,0,0.25)] flex flex-col justify-center">
+            <div class="bg-white rounded-lg py-2.5 px-4 shadow-[0_0_10px_rgba(0,0,0,0.25)] flex flex-col justify-center${flashClass}">
                 <div class="font-bold text-gray-800 text-2xl mb-0">
                     ${name}${starMarkup}
                 </div>

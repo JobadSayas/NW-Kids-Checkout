@@ -5,6 +5,8 @@ import { JSDOM } from 'jsdom';
 
 const scriptPath = path.resolve(process.cwd(), 'internal/web/static/pages/checkoutsv1/checkouts.js');
 const script = fs.readFileSync(scriptPath, 'utf8');
+const morphdomScriptPath = path.resolve(process.cwd(), 'internal/web/static/js/morphdom-umd.min.js');
+const morphdomScript = fs.readFileSync(morphdomScriptPath, 'utf8');
 const exposeInternals = `
 window.__test = {
     setChildrenData: (value) => { childrenData = value; },
@@ -12,9 +14,14 @@ window.__test = {
         dom.childrenList = document.getElementById('children-list');
     },
     syncConfirmedStates: () => syncConfirmedStates(),
+    updateUI: () => updateUI(),
     setConfirmationOverride: (childId, confirmed) => setConfirmationOverride(childId, confirmed),
     setSearchQuery: (query) => setSearchQuery(query),
-    getVisibleChildren: () => getVisibleChildren()
+    getVisibleChildren: () => getVisibleChildren(),
+    computeNewChildIds: (children) => computeNewChildIds(children),
+    getFlashChildIds: () => flashChildIds,
+    setFlashChildIds: (ids) => { flashChildIds = ids; },
+    clearFlashStyles: () => clearFlashStyles()
 };
 `;
 
@@ -29,12 +36,37 @@ function loadWindow({ html, url = 'http://localhost/', fetchImpl } = {}) {
         text: async () => ''
     }));
     dom.window.setInterval = () => 0;
-    dom.window.morphdom = (target, template) => {
-        target.innerHTML = template.innerHTML;
-    };
     dom.window.requestAnimationFrame = () => 0;
+    dom.window.eval(morphdomScript);
     dom.window.eval(`${script}\n${exposeInternals}`);
     return dom.window;
+}
+
+function pcChild(id) {
+    return {
+        source: 'planning_center',
+        planning_center_id: id,
+        first_name: id,
+        last_name: 'X',
+        security_code: id,
+        checked_out_at: new Date().toISOString()
+    };
+}
+
+function childrenListWindow() {
+    return loadWindow({ html: '<!doctype html><html><body><div id="children-list"></div></body></html>' });
+}
+
+function cardFor(window, id) {
+    return window.document.querySelector(`.child-time[data-child-id="${id}"]`).closest('.bg-white.rounded-lg');
+}
+
+function boardWithFlashedChild(window) {
+    window.__test.setChildrenData([pcChild('a'), pcChild('b')]);
+    window.__test.updateUI();
+    window.__test.setChildrenData([pcChild('d'), pcChild('a'), pcChild('b')]);
+    window.__test.setFlashChildIds(new Set(['pc:d']));
+    window.__test.updateUI();
 }
 
 describe('checkoutsv1/checkouts', () => {
@@ -276,5 +308,74 @@ describe('checkoutsv1/checkouts', () => {
         window.__test.setDom();
         window.__test.setSearchQuery('zzz');
         expect(window.document.getElementById('children-list').innerHTML).toContain('No matching children');
+    });
+
+    it('computeNewChildIds seeds on first call and detects later additions', () => {
+        const window = loadWindow();
+        const pc1 = { source: 'planning_center', planning_center_id: 'pc1' };
+        const pc2 = { source: 'planning_center', planning_center_id: 'pc2' };
+        const first = window.__test.computeNewChildIds([pc1]);
+        expect(first.size).toBe(0);
+        const second = window.__test.computeNewChildIds([pc1, pc2]);
+        expect(Array.from(second)).toEqual(['pc:pc2']);
+    });
+
+    it('renders child-card-flash class for flashing ids', () => {
+        const window = loadWindow();
+        const child = pcChild('pc1');
+        const html = window.renderChildren([child], Date.now(), false);
+        expect(html).not.toContain('child-card-flash');
+        window.__test.setFlashChildIds(new Set(['pc:pc1']));
+        const flashing = window.renderChildren([child], Date.now(), false);
+        expect(flashing).toContain('child-card-flash');
+    });
+
+    it('clearFlashStyles removes flash class from the board and resets flash ids', () => {
+        const window = childrenListWindow();
+        window.__test.setChildrenData([pcChild('pc1')]);
+        window.__test.setDom();
+        window.__test.setFlashChildIds(new Set(['pc:pc1']));
+        window.__test.updateUI();
+        expect(window.document.querySelector('.child-card-flash')).not.toBeNull();
+        window.__test.clearFlashStyles();
+        expect(window.document.querySelector('.child-card-flash')).toBeNull();
+        expect(window.__test.getFlashChildIds().size).toBe(0);
+    });
+
+    it('strips stale flash classes before morphing so a new child re-flashes', () => {
+        const window = childrenListWindow();
+        window.__test.setDom();
+        boardWithFlashedChild(window);
+        expect(cardFor(window, 'pc:d').className).toContain('child-card-flash');
+        let classesAtMorph = null;
+        const realMorphdom = window.morphdom;
+        window.morphdom = (target, template, opts) => {
+            classesAtMorph = [...target.querySelectorAll('.bg-white.rounded-lg')].map((el) => el.className);
+            realMorphdom(target, template, opts);
+        };
+        window.__test.setChildrenData([pcChild('e'), pcChild('d'), pcChild('a'), pcChild('b')]);
+        window.__test.setFlashChildIds(new Set(['pc:e']));
+        window.__test.updateUI();
+        expect(classesAtMorph.length).toBeGreaterThan(0);
+        expect(classesAtMorph.every((className) => !className.includes('child-card-flash'))).toBe(true);
+    });
+
+    it('forces a reflow after clearing stale flash classes so the animation restarts', () => {
+        const window = childrenListWindow();
+        window.__test.setDom();
+        boardWithFlashedChild(window);
+        expect(cardFor(window, 'pc:d').className).toContain('child-card-flash');
+        let reflowCount = 0;
+        Object.defineProperty(window.document.getElementById('children-list'), 'offsetHeight', {
+            configurable: true,
+            get: () => {
+                reflowCount += 1;
+                return 0;
+            }
+        });
+        window.__test.setChildrenData([pcChild('e'), pcChild('d'), pcChild('a'), pcChild('b')]);
+        window.__test.setFlashChildIds(new Set(['pc:e']));
+        window.__test.updateUI();
+        expect(reflowCount).toBeGreaterThan(0);
     });
 });
