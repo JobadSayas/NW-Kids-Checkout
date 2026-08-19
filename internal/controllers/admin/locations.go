@@ -26,6 +26,7 @@ func (controller *Controller) RegisterRoutes(app *fiber.App) {
 	adminGroup.Get("/location-groups", controller.GetLocationGroups)
 	adminGroup.Get("/planningcenter/events", controller.GetPlanningCenterEvents)
 	adminGroup.Get("/planningcenter/events/:id", controller.GetPlanningCenterEvent)
+	adminGroup.Get("/fetcher-status", controller.GetFetcherStatus)
 }
 
 func (controller *Controller) GetLanding(c *fiber.Ctx) error {
@@ -74,6 +75,17 @@ func (controller *Controller) GetPlanningCenterEvents(c *fiber.Ctx) error {
 
 func (controller *Controller) GetPlanningCenterEvent(c *fiber.Ctx) error {
 	f, err := static.EmbeddedFS.Open("pages/admin/planningcenter-event.html")
+	if err != nil {
+		return fiber.ErrInternalServerError
+	}
+	defer f.Close()
+
+	c.Type("html")
+	return c.SendStream(f)
+}
+
+func (controller *Controller) GetFetcherStatus(c *fiber.Ctx) error {
+	f, err := static.EmbeddedFS.Open("pages/admin/fetcher-status.html")
 	if err != nil {
 		return fiber.ErrInternalServerError
 	}
