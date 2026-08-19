@@ -7,6 +7,8 @@ let childrenData = [];
 let childrenFetchController = null;
 let childTimeElementsById = new Map();
 let lastListSignature = null;
+let searchQuery = '';
+let hideConfirmed = false;
 const CONFIRM_OVERRIDE_TTL_MS = 15000;
 const confirmationOverrides = new Map();
 const dom = {
@@ -108,6 +110,27 @@ function getChildSignature(child) {
         child.last_name || '',
         child.security_code || ''
     ].join('|');
+}
+
+function getVisibleChildren() {
+    let children = childrenData;
+    if (hideConfirmed) {
+        children = children.filter((child) => !child.checked_out_confirmed_at);
+    }
+    if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        children = children.filter((child) => {
+            const name = `${child.first_name || ''} ${child.last_name || ''}`.toLowerCase();
+            const code = (child.security_code || '').toLowerCase();
+            return name.includes(q) || code.includes(q);
+        });
+    }
+    return children;
+}
+
+function setSearchQuery(query) {
+    searchQuery = (query || '').trim();
+    updateUI();
 }
 
 function syncConfirmedStates() {
@@ -375,14 +398,11 @@ function updateUI() {
     }
 
     const nowMs = Date.now();
-
-    const listSignature = childrenData
-        .slice(0, 100)
-        .map(getChildSignature)
-        .join('||');
+    const visibleChildren = getVisibleChildren();
+    const listSignature = hideConfirmed + '||' + searchQuery + '||' + visibleChildren.slice(0, 100).map(getChildSignature).join('||');
     if (dom.childrenList && listSignature !== lastListSignature) {
         const previousScrollTop = dom.childrenList.scrollTop;
-        const markup = renderChildren(childrenData.slice(0, 100), nowMs);
+        const markup = renderChildren(visibleChildren.slice(0, 100), nowMs, Boolean(searchQuery));
         morphChildren(dom.childrenList, markup);
         cacheChildTimeElements(dom.childrenList);
         requestAnimationFrame(() => {
@@ -395,9 +415,15 @@ function updateUI() {
     syncConfirmedStates();
 }
 
-function renderChildren(children, nowMs) {
+function renderChildren(children, nowMs, searchActive) {
     if (children.length === 0) {
-        return '<div class="text-center text-gray-500 py-8 text-3xl">No children called yet</div>';
+        if (searchActive) {
+            return '<div class="text-center py-12 text-3xl text-slate-500">No matching children</div>';
+        }
+        if (hideConfirmed) {
+            return '<div class="text-center py-12 text-3xl text-slate-500">No unconfirmed children</div>';
+        }
+        return '<div class="text-center py-12 text-3xl text-slate-500">No children called yet</div>';
     }
 
     return children.map((child) => {
@@ -480,6 +506,9 @@ document.addEventListener('DOMContentLoaded', function () {
     window.addEventListener('resize', () => {
         requestAnimationFrame(clampChildrenListScroll);
     });
+
+    const searchInput = document.getElementById('search-input');
+    if (searchInput) searchInput.addEventListener('input', () => setSearchQuery(searchInput.value));
 
     document.addEventListener('change', function (event) {
         const checkbox = event.target;

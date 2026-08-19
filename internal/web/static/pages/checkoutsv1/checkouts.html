@@ -65,6 +65,15 @@
 
 <!-- Main Content -->
 <div class="relative z-10 min-h-screen flex flex-col box-border lg:h-screen lg:pt-28">
+    <div class="relative z-10 flex justify-center px-4 pb-2">
+        <input
+            id="search-input"
+            type="search"
+            autocomplete="off"
+            placeholder="Search by name or code"
+            class="w-full max-w-md rounded-lg border border-slate-300 bg-white px-4 py-2 text-xl shadow-sm focus:border-slate-500 focus:outline-none"
+        />
+    </div>
     <!-- Scrollable children list (list on mobile, grid on desktop) -->
     <div id="children-list" class="grid grid-cols-1 gap-3 px-4 py-4 md:grid-cols-2 lg:flex-1 lg:min-h-0 lg:overflow-y-auto lg:content-start lg:grid-cols-3">
         <!-- Cards will be dynamically inserted here -->

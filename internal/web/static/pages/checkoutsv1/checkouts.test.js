@@ -12,7 +12,9 @@ window.__test = {
         dom.childrenList = document.getElementById('children-list');
     },
     syncConfirmedStates: () => syncConfirmedStates(),
-    setConfirmationOverride: (childId, confirmed) => setConfirmationOverride(childId, confirmed)
+    setConfirmationOverride: (childId, confirmed) => setConfirmationOverride(childId, confirmed),
+    setSearchQuery: (query) => setSearchQuery(query),
+    getVisibleChildren: () => getVisibleChildren()
 };
 `;
 
@@ -27,7 +29,10 @@ function loadWindow({ html, url = 'http://localhost/', fetchImpl } = {}) {
         text: async () => ''
     }));
     dom.window.setInterval = () => 0;
-    dom.window.morphdom = () => { };
+    dom.window.morphdom = (target, template) => {
+        target.innerHTML = template.innerHTML;
+    };
+    dom.window.requestAnimationFrame = () => 0;
     dom.window.eval(`${script}\n${exposeInternals}`);
     return dom.window;
 }
@@ -249,5 +254,27 @@ describe('checkoutsv1/checkouts', () => {
             const label = checkbox.closest('[data-confirmed-label]');
             expect(label?.dataset.confirmedState).toBe('confirmed');
         });
+    });
+
+    it('filters visible children by name and code', () => {
+        const window = loadWindow();
+        window.__test.setChildrenData([
+            { id: 'pc:1', first_name: 'Alice', last_name: 'Smith', security_code: '1234', source: 'planning_center' },
+            { id: 'pc:2', first_name: 'Bob', last_name: 'Jones', security_code: '5678', source: 'planning_center' }
+        ]);
+        window.__test.setSearchQuery('ali');
+        expect(window.__test.getVisibleChildren().map((c) => c.id)).toEqual(['pc:1']);
+        window.__test.setSearchQuery('5678');
+        expect(window.__test.getVisibleChildren().map((c) => c.id)).toEqual(['pc:2']);
+        window.__test.setSearchQuery('');
+        expect(window.__test.getVisibleChildren()).toHaveLength(2);
+    });
+
+    it('renders no-matching message for empty search results', () => {
+        const window = loadWindow({ html: '<!doctype html><html><body><ul id="children-list"></ul></body></html>' });
+        window.__test.setChildrenData([]);
+        window.__test.setDom();
+        window.__test.setSearchQuery('zzz');
+        expect(window.document.getElementById('children-list').innerHTML).toContain('No matching children');
     });
 });
