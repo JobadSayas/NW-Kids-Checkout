@@ -346,6 +346,30 @@ describe('checkoutsv1/checkouts', () => {
         expect(button.getAttribute('aria-pressed')).toBe('false');
     });
 
+    it('search toggle button expands and collapses the search controls', () => {
+        const window = loadWindow({
+            html: '<!doctype html><html><body><button id="search-toggle-button" aria-expanded="false" aria-controls="search-controls"><svg data-search-toggle-icon></svg></button><div id="search-controls" class="w-full max-w-md"></div></body></html>'
+        });
+        window.document.dispatchEvent(new window.Event('DOMContentLoaded'));
+        const toggle = window.document.getElementById('search-toggle-button');
+        const controls = window.document.getElementById('search-controls');
+        const icon = toggle.querySelector('[data-search-toggle-icon]');
+
+        expect(controls.classList.contains('is-expanded')).toBe(false);
+        expect(toggle.getAttribute('aria-expanded')).toBe('false');
+        expect(icon.classList.contains('rotate-180')).toBe(false);
+
+        toggle.click();
+        expect(controls.classList.contains('is-expanded')).toBe(true);
+        expect(toggle.getAttribute('aria-expanded')).toBe('true');
+        expect(icon.classList.contains('rotate-180')).toBe(true);
+
+        toggle.click();
+        expect(controls.classList.contains('is-expanded')).toBe(false);
+        expect(toggle.getAttribute('aria-expanded')).toBe('false');
+        expect(icon.classList.contains('rotate-180')).toBe(false);
+    });
+
     it('renders no-unconfirmed message when hiding confirmed empties the board', () => {
         const window = loadWindow();
         window.__test.setChildrenData([

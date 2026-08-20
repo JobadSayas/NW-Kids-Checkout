@@ -553,10 +553,76 @@ function updateAllTimes() {
     updateTimes();
 }
 
+function setupMenu() {
+    const menuButton = document.getElementById('menu-button');
+    const menu = document.getElementById('kebab-menu');
+
+    if (!menuButton || !menu) return;
+
+    function closeMenu() {
+        menu.classList.add('hidden');
+        menuButton.setAttribute('aria-expanded', 'false');
+    }
+
+    function toggleMenu(event) {
+        event.stopPropagation();
+        const isOpen = !menu.classList.contains('hidden');
+        if (isOpen) {
+            closeMenu();
+            return;
+        }
+        menu.classList.remove('hidden');
+        menuButton.setAttribute('aria-expanded', 'true');
+    }
+
+    menuButton.addEventListener('click', toggleMenu);
+    menu.querySelectorAll('a').forEach((link) => {
+        link.addEventListener('click', closeMenu);
+    });
+    document.addEventListener('click', (event) => {
+        if (menu.classList.contains('hidden')) return;
+        if (!menu.contains(event.target)) closeMenu();
+    });
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') closeMenu();
+    });
+}
+
+async function revealAdminLink() {
+    try {
+        const response = await fetch('/api/session', { credentials: 'same-origin' });
+        const loginLink = document.getElementById('login-link');
+        const logoutLink = document.getElementById('logout-link');
+        const adminLink = document.getElementById('admin-link');
+        if (!loginLink || !logoutLink || !adminLink) return;
+        if (!response.ok) {
+            loginLink.classList.remove('hidden');
+            logoutLink.classList.add('hidden');
+            return;
+        }
+        const data = await response.json();
+        if (!data || !data.authenticated) {
+            loginLink.classList.remove('hidden');
+            logoutLink.classList.add('hidden');
+            return;
+        }
+        loginLink.classList.add('hidden');
+        logoutLink.classList.remove('hidden');
+        if (data.role === 'admin') {
+            adminLink.classList.remove('hidden');
+        }
+    } catch (error) {
+        return;
+    }
+}
+
 // Initialize and start periodic updates
 document.addEventListener('DOMContentLoaded', function () {
     dom.childrenList = document.getElementById('children-list');
     dom.currentTime = document.getElementById('current-time');
+
+    setupMenu();
+    revealAdminLink();
 
     window.addEventListener('resize', () => {
         requestAnimationFrame(clampChildrenListScroll);
@@ -567,6 +633,33 @@ document.addEventListener('DOMContentLoaded', function () {
 
     const toggleButton = document.getElementById('toggle-confirmed-button');
     if (toggleButton) toggleButton.addEventListener('click', () => setHideConfirmed(!hideConfirmed));
+
+    const searchToggleButton = document.getElementById('search-toggle-button');
+    const searchControls = document.getElementById('search-controls');
+    if (searchToggleButton && searchControls) {
+        const searchToggleIcon = searchToggleButton.querySelector('[data-search-toggle-icon]');
+        function animateSearchControls(expanded) {
+            searchControls.classList.toggle('is-expanded', expanded);
+            if (expanded) {
+                searchControls.style.height = '0px';
+                void searchControls.offsetHeight;
+                searchControls.style.height = `${searchControls.scrollHeight}px`;
+            } else {
+                searchControls.style.height = `${searchControls.scrollHeight}px`;
+                void searchControls.offsetHeight;
+                searchControls.style.height = '0px';
+            }
+        }
+        searchToggleButton.addEventListener('click', () => {
+            const expanded = !searchControls.classList.contains('is-expanded');
+            animateSearchControls(expanded);
+            searchToggleButton.setAttribute('aria-expanded', String(expanded));
+            searchToggleIcon?.classList.toggle('rotate-180', expanded);
+            if (expanded) {
+                searchInput?.focus();
+            }
+        });
+    }
 
     document.addEventListener('change', function (event) {
         const checkbox = event.target;
