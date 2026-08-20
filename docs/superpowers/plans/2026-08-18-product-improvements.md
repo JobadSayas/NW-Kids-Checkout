@@ -1213,7 +1213,7 @@ Use `db.PrepareTestDB()` and insert via the raw DB (or existing repos):
 
 ## Task 3.2 — Metrics controller
 
-- [ ] **Task 3.2 — Metrics controller** (mark done when implemented, tests written and passing, and Phase 3 suite green)
+- [x] **Task 3.2 — Metrics controller** (mark done when implemented, tests written and passing, and Phase 3 suite green)
 
 ### Controller (`internal/controllers/metricsv1/metrics.go`) — new package
 

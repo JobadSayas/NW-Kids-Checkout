@@ -19,8 +19,10 @@ import (
 	"kids-checkin/internal/controllers/locationgroupv1"
 	"kids-checkin/internal/controllers/locationv1"
 	"kids-checkin/internal/controllers/manualcheckinv1"
+	"kids-checkin/internal/controllers/metricsv1"
 	"kids-checkin/internal/controllers/planningcenterv1"
 	"kids-checkin/internal/db"
+	"kids-checkin/internal/repo/metrics"
 	"kids-checkin/internal/web/static"
 
 	"github.com/gofiber/fiber/v2"
@@ -222,6 +224,10 @@ func registerRoutes(app *fiber.App, db *sql.DB, sessionStore *session.Store, pag
 
 	planningCenterV1Controller := planningcenterv1.NewController(sessionStore, paginationStore)
 	planningCenterV1Controller.RegisterRoutes(app)
+
+	metricsRepo := metrics.NewRepo(db)
+	metricsV1Controller := metricsv1.NewController(metricsRepo, sessionStore)
+	metricsV1Controller.RegisterRoutes(app)
 
 	adminController := admin.NewController(sessionStore)
 	adminController.RegisterRoutes(app)
