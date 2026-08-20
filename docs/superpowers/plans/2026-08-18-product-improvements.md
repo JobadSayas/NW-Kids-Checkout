@@ -45,7 +45,7 @@ To mark done, change the checkbox from `- [ ]` to `- [x]` next to the task name.
 Phase checkbox:
 - [x] **Phase 1 — Core board** (complete when Tasks 1.1, 1.2, and 1.4 are checked)
 - [x] **Phase 2 — Admin & ops** (complete when Tasks 2.2–2.4 are checked)
-- [ ] **Phase 3 — Metrics & history** (complete when Tasks 3.1–3.3 are checked)
+- [x] **Phase 3 — Metrics & history** (complete when Tasks 3.1–3.3 are checked)
 
 # Phase 1 — Core board: search + alerts
 
@@ -1313,7 +1313,7 @@ Mirror `setupAuthedApp()` used elsewhere:
 
 ## Task 3.3 — Metrics admin page
 
-- [ ] **Task 3.3 — Metrics admin page** (mark done when implemented, tests written and passing, and Phase 3 suite green)
+- [x] **Task 3.3 — Metrics admin page** (mark done when implemented, tests written and passing, and Phase 3 suite green)
 
 ### Admin controller (`internal/controllers/admin/locations.go`)
 

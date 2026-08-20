@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NW Kids - Metrics</title>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico"/>
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png"/>
+    <link rel="manifest" href="/manifest.webmanifest"/>
+    <link rel="stylesheet" href="/static/css/tailwind.css?v=dev">
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-slate-50 text-slate-900">
+<div class="max-w-6xl mx-auto px-6 py-10">
+    <header class="flex flex-col gap-2 mb-8">
+        <div class="flex items-center gap-3">
+            <a href="/admin">
+                <img src="/static/img/NWKids-logo.svg" alt="NWKids Logo" class="h-16 md:h-24 w-auto">
+            </a>
+            <h1 class="text-3xl font-semibold">Metrics</h1>
+        </div>
+        <p class="text-sm text-slate-600">Daily check-in metrics per event and date.</p>
+    </header>
+
+    <div id="page-status" class="hidden mb-4 rounded-md border border-slate-200 bg-white px-4 py-3 text-sm"></div>
+    <div id="metrics-error" class="hidden mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"></div>
+
+    <div class="mb-4 flex items-center gap-3">
+        <label for="metrics-days" class="text-sm font-medium text-slate-700">Period</label>
+        <select id="metrics-days" class="rounded-lg border border-slate-300 px-3 py-2 text-sm">
+            <option value="7">Last 7 days</option>
+            <option value="14" selected>Last 14 days</option>
+            <option value="30">Last 30 days</option>
+        </select>
+    </div>
+
+    <div class="rounded-xl border border-slate-200 bg-white shadow-sm">
+        <table class="min-w-full text-sm">
+            <thead class="sticky top-0 z-10 bg-slate-100 text-left text-xs uppercase tracking-wide text-slate-600 shadow-sm">
+            <tr>
+                <th class="px-4 py-3">Date</th>
+                <th class="px-4 py-3">Event</th>
+                <th class="px-4 py-3">Called</th>
+                <th class="px-4 py-3">Confirmed</th>
+                <th class="px-4 py-3">Unconfirmed</th>
+                <th class="px-4 py-3">Avg confirm (min)</th>
+                <th class="px-4 py-3">Manual</th>
+            </tr>
+            </thead>
+            <tbody id="metrics-body" class="divide-y divide-slate-100">
+            <tr>
+                <td class="px-4 py-6 text-center text-slate-500" colspan="7">Loading metrics...</td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script src="/static/pages/admin/metrics.js?v=dev"></script>
+</body>
+</html>
