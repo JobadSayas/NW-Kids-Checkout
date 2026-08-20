@@ -51,6 +51,7 @@ func (controller *Controller) RegisterRoutes(app *fiber.App) {
 	adminGroup.Get("/lookup", controller.GetEventByPlanningCenterID)
 	adminGroup.Post("", controller.PostCreateEvent)
 	adminGroup.Patch("/:id", controller.PatchUpdateEvent)
+	adminGroup.Delete("/:id", controller.DeleteEvent)
 
 	adminGroup.Get("/:eventId/check-windows", controller.GetEventCheckWindows)
 	adminGroup.Post("/:eventId/check-windows", controller.PostCreateCheckWindow)
@@ -219,6 +220,26 @@ func (controller *Controller) PatchUpdateEvent(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(repoEventToOutput(current))
+}
+
+func (controller *Controller) DeleteEvent(c *fiber.Ctx) error {
+	log := middleware.GetLogger(c)
+
+	eventID, err := strconv.ParseInt(c.Params("id"), 10, 64)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid event id")
+	}
+
+	if err := eventlocation.DeleteEventWithDependents(c.Context(), controller.db, eventID); err != nil {
+		if errors.Is(err, repo.ErrNotFound) {
+			return fiber.NewError(fiber.StatusNotFound, "event not found")
+		}
+		log.ErrorContext(c.Context(), "failed to delete event", slog.Int64("event_id", eventID), slog.String("error", err.Error()), slog.Any("err", err))
+		return err
+	}
+
+	log.InfoContext(c.Context(), "deleted event", slog.Int64("event_id", eventID))
+	return c.SendStatus(fiber.StatusNoContent)
 }
 
 type Event struct {

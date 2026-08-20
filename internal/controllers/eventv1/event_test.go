@@ -779,3 +779,43 @@ func TestController_PatchUpdateEvent_withLocationGroup(t *testing.T) {
 		assert.Equal(t, fiber.StatusBadRequest, resp.StatusCode)
 	})
 }
+
+func TestController_DeleteEvent(t *testing.T) {
+	app, store := setupAuthedApp()
+
+	testDB, cleanup, err := db.PrepareTestDB()
+	require.NoError(t, err, "Failed to prepare test DB")
+	t.Cleanup(cleanup)
+
+	controller := NewController(testDB, store)
+	controller.RegisterRoutes(app)
+
+	eventRes, err := squirrel.Insert("events").
+		RunWith(testDB).
+		Columns("name", "planning_center_id").
+		Values("Sunday Service", "pc_evt_1").
+		ExecContext(t.Context())
+	require.NoError(t, err)
+	eventID, _ := eventRes.LastInsertId()
+
+	t.Run("success", func(t *testing.T) {
+		req := httptest.NewRequest("DELETE", fmt.Sprintf("/v1/admin/events/%d", eventID), nil)
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		assert.Equal(t, fiber.StatusNoContent, resp.StatusCode)
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		req := httptest.NewRequest("DELETE", fmt.Sprintf("/v1/admin/events/%d", 99999), nil)
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		assert.Equal(t, fiber.StatusNotFound, resp.StatusCode)
+	})
+
+	t.Run("invalid id", func(t *testing.T) {
+		req := httptest.NewRequest("DELETE", "/v1/admin/events/not-a-number", nil)
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		assert.Equal(t, fiber.StatusBadRequest, resp.StatusCode)
+	})
+}

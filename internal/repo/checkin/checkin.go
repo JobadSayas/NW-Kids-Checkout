@@ -15,6 +15,7 @@ type Filter struct {
 	ID                 int64
 	PlanningCenterID   string
 	LocationID         int64
+	EventID            int64
 	LocationName       string
 	LocationGroupID    int64
 	LocationGroupName  string
@@ -43,13 +44,14 @@ type Repo interface {
 	CreateCheckin(ctx context.Context, checkin Checkin) (Checkin, error)
 	SetCheckedOutConfirmedAt(ctx context.Context, planningCenterID string, confirmed bool) (Checkin, error)
 	RemoveOldCheckins(ctx context.Context, olderThan time.Time) (deletedCount int64, err error)
+	DeleteCheckin(ctx context.Context, id int64) error
 }
 
 type sqliteRepo struct {
-	db *sql.DB
+	db repo.DBTX
 }
 
-func NewRepo(db *sql.DB) Repo {
+func NewRepo(db repo.DBTX) Repo {
 	return &sqliteRepo{
 		db: db,
 	}
@@ -121,6 +123,10 @@ func (s *sqliteRepo) ListCheckins(ctx context.Context, filter Filter) ([]Checkin
 
 	if filter.LocationID > 0 {
 		builder = builder.Where(squirrel.Eq{"checkins.location_id": filter.LocationID})
+	}
+
+	if filter.EventID > 0 {
+		builder = builder.Where(squirrel.Eq{"checkins.event_id": filter.EventID})
 	}
 
 	if filter.Recent {
@@ -273,4 +279,23 @@ func (s *sqliteRepo) RemoveOldCheckins(ctx context.Context, olderThan time.Time)
 
 	ra, _ := res.RowsAffected()
 	return ra, err
+}
+
+func (s *sqliteRepo) DeleteCheckin(ctx context.Context, id int64) error {
+	builder := squirrel.
+		Delete("checkins").
+		Where(squirrel.Eq{"id": id}).
+		RunWith(s.db)
+
+	res, err := builder.ExecContext(ctx)
+	if err != nil {
+		return fmt.Errorf("deleting checkin: %w", err)
+	}
+
+	rowsAffected, _ := res.RowsAffected()
+	if rowsAffected == 0 {
+		return repo.ErrNotFound
+	}
+
+	return nil
 }

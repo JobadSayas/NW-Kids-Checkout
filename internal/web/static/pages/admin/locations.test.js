@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { JSDOM } from 'jsdom';
@@ -10,8 +10,10 @@ const checkWindowsScript = fs.readFileSync(checkWindowsScriptPath, 'utf8');
 const exposeInternals = `
 window.__test = {
     setEvents: (events) => { eventsById = new Map(events.map(event => [Number(event.id), event])); },
+    setLocations: (locs) => { locations = locs; },
     setLocationGroups: (groups) => { locationGroups = groups; },
-    renderLocations: () => renderLocations()
+    renderLocations: () => renderLocations(),
+    handleDeleteEvent: (event) => handleDeleteEvent(event)
 };
 `;
 
@@ -166,5 +168,42 @@ describe('admin/locations', () => {
 
         expect(window.document.getElementById('add-window-button').style.display).toBe('');
         expect(window.document.getElementById('window-form').classList.contains('hidden')).toBe(true);
+    });
+
+    it('renders a delete button per event row', () => {
+        const window = loadWindow();
+        window.__test.setEvents([{ id: 1, name: 'Kids Check-in', auto_fetch: false, location_group_id: null }]);
+        window.__test.setLocations([]);
+        window.__test.renderLocations();
+        const button = window.document.querySelector('.event-row [data-delete-event-id="1"]');
+        expect(button).not.toBeNull();
+    });
+
+    it('delete event sends DELETE and reloads on confirm', async () => {
+        const calls = [];
+        const fetchImpl = async (url, opts) => {
+            calls.push({ url, opts });
+            if (url.includes('/v1/locations') || url.includes('/v1/location_groups') || url.includes('/v1/events')) {
+                return { ok: true, status: 200, json: async () => [], text: async () => '' };
+            }
+            return { ok: true, status: 204, text: async () => '' };
+        };
+        const window = loadWindow(fetchImpl);
+        const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+        await window.__test.handleDeleteEvent({ id: 1, name: 'Kids Check-in' });
+        expect(confirmSpy).toHaveBeenCalled();
+        expect(calls.some(c => c.url === '/v1/admin/events/1' && c.opts?.method === 'DELETE')).toBe(true);
+    });
+
+    it('delete event skips request when confirm is declined', async () => {
+        const calls = [];
+        const fetchImpl = async (url, opts) => {
+            calls.push({ url, opts });
+            return { ok: true, status: 200, json: async () => [], text: async () => '' };
+        };
+        const window = loadWindow(fetchImpl);
+        vi.spyOn(window, 'confirm').mockReturnValue(false);
+        await window.__test.handleDeleteEvent({ id: 1, name: 'Kids Check-in' });
+        expect(calls.some(c => c.url === '/v1/admin/events/1')).toBe(false);
     });
 });

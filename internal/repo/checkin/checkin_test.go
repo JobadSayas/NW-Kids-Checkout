@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"kids-checkin/internal/db"
+	"kids-checkin/internal/repo"
 
 	"github.com/Masterminds/squirrel"
 	_ "github.com/mattn/go-sqlite3"
@@ -464,4 +465,60 @@ func Test_sqliteRepo_SetCheckedOutConfirmedAt(t *testing.T) {
 	updated, err = s.SetCheckedOutConfirmedAt(t.Context(), created.PlanningCenterID, false)
 	require.NoError(t, err)
 	assert.True(t, updated.CheckedOutConfirmedAt.IsZero())
+}
+
+func Test_sqliteRepo_DeleteCheckin(t *testing.T) {
+	s := NewRepo(testDB)
+	_, err := squirrel.Delete("checkins").RunWith(testDB).ExecContext(t.Context())
+	require.NoError(t, err)
+
+	created, err := s.CreateCheckin(t.Context(), Checkin{
+		PlanningCenterID: "plc_del",
+		LocationID:       1,
+		FirstName:        "first",
+		LastName:         "last",
+		SecurityCode:     "ABC123",
+	})
+	require.NoError(t, err)
+
+	err = s.DeleteCheckin(t.Context(), created.ID)
+	require.NoError(t, err)
+
+	list, err := s.ListCheckins(t.Context(), Filter{ID: created.ID})
+	require.NoError(t, err)
+	assert.Empty(t, list)
+
+	err = s.DeleteCheckin(t.Context(), created.ID)
+	require.ErrorIs(t, err, repo.ErrNotFound)
+}
+
+func Test_sqliteRepo_ListCheckins_filter_by_EventID(t *testing.T) {
+	s := NewRepo(testDB)
+	_, err := squirrel.Delete("checkins").RunWith(testDB).ExecContext(t.Context())
+	require.NoError(t, err)
+
+	_, err = s.CreateCheckin(t.Context(), Checkin{
+		PlanningCenterID: "plc_evt1",
+		LocationID:       1,
+		EventID:          10,
+		FirstName:        "Alice",
+		LastName:         "A",
+		SecurityCode:     "A1",
+	})
+	require.NoError(t, err)
+
+	_, err = s.CreateCheckin(t.Context(), Checkin{
+		PlanningCenterID: "plc_evt2",
+		LocationID:       1,
+		EventID:          20,
+		FirstName:        "Bob",
+		LastName:         "B",
+		SecurityCode:     "B1",
+	})
+	require.NoError(t, err)
+
+	list, err := s.ListCheckins(t.Context(), Filter{EventID: 10})
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	assert.Equal(t, "plc_evt1", list[0].PlanningCenterID)
 }

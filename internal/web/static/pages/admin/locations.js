@@ -27,6 +27,27 @@ function clearPageStatus() {
     pageStatus.textContent = '';
 }
 
+function handleDeleteEvent(event) {
+    const confirmed = window.confirm(
+        `Delete "${event.name}"?\n\nThis will permanently remove the event and its locations, check-ins, and check windows.`,
+    );
+    if (!confirmed) return;
+    clearPageStatus();
+    return fetch(`${API_URL}/v1/admin/events/${event.id}`, { method: 'DELETE' })
+        .then((response) => {
+            if (!response.ok) {
+                return response.text().then((message) => {
+                    throw new Error(message || `Failed to delete event (${response.status})`);
+                });
+            }
+            setPageStatus(`Deleted "${event.name}".`, 'success');
+            return loadData();
+        })
+        .catch((error) => {
+            setPageStatus(`Failed to delete "${event.name}": ${error.message}`, 'error');
+        });
+}
+
 async function fetchJson(path, options = {}) {
     const response = await fetch(`${API_URL}${path}`, options);
     if (!response.ok) {
@@ -117,7 +138,7 @@ function renderLocations() {
         const eventLocations = locations.filter(loc => Number(loc.event_id) === eventId);
 
         const eventRow = document.createElement('tr');
-        eventRow.classList.add('bg-slate-100');
+        eventRow.classList.add('event-row', 'bg-slate-100');
         eventRow.innerHTML = `
             <td class="px-4 py-3 font-semibold text-slate-800">${eventName}</td>
             <td class="px-4 py-3 text-slate-600">-</td>
@@ -140,11 +161,22 @@ function renderLocations() {
                 </label>
             </td>
             <td class="px-4 py-3">
-                <button onclick="openCheckWindowsModal(${eventId}, ${JSON.stringify(eventName).replace(/"/g, '&quot;')})" class="inline-flex cursor-pointer items-center gap-2 rounded-md border border-slate-800 bg-slate-800 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-700">
-                    Check Windows
-                </button>
+                <div class="flex items-center gap-2">
+                    <button onclick="openCheckWindowsModal(${eventId}, ${JSON.stringify(eventName).replace(/"/g, '&quot;')})" class="inline-flex cursor-pointer items-center gap-2 rounded-md border border-slate-800 bg-slate-800 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-700">
+                        Check Windows
+                    </button>
+                </div>
             </td>
         `;
+
+        const deleteButton = document.createElement('button');
+        deleteButton.type = 'button';
+        deleteButton.className = 'inline-flex cursor-pointer items-center gap-2 rounded-md border border-red-300 px-3 py-1.5 text-sm font-semibold text-red-700 shadow-sm transition hover:bg-red-50';
+        deleteButton.dataset.deleteEventId = event.id;
+        deleteButton.textContent = 'Delete';
+        deleteButton.addEventListener('click', () => handleDeleteEvent(event));
+
+        eventRow.querySelector('td:last-child div').appendChild(deleteButton);
 
         const eventSelect = eventRow.querySelector('.event-group-select');
         const eventToggle = eventRow.querySelector('.event-auto-fetch-toggle');

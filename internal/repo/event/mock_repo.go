@@ -20,6 +20,9 @@ type MockRepo struct {
 
 	UpdateEventFunc          func(ctx context.Context, event Event) error
 	UpdateEventFuncCallCount atomic.Int64
+
+	DeleteEventFunc          func(ctx context.Context, id int64) error
+	DeleteEventFuncCallCount atomic.Int64
 }
 
 func (repo *MockRepo) GetEventByID(ctx context.Context, id int64) (Event, error) {
@@ -65,4 +68,13 @@ func (repo *MockRepo) ListEvents(ctx context.Context, filter EventFilter) ([]Eve
 	}
 
 	panic("MockRepo.ListEvents not implemented")
+}
+
+func (repo *MockRepo) DeleteEvent(ctx context.Context, id int64) error {
+	repo.DeleteEventFuncCallCount.Add(1)
+	if repo.DeleteEventFunc != nil {
+		return repo.DeleteEventFunc(ctx, id)
+	}
+
+	panic("MockRepo.DeleteEvent not implemented")
 }

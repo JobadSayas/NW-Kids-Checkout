@@ -36,6 +36,7 @@ type Repo interface {
 	ListEvents(ctx context.Context, filter EventFilter) ([]Event, error)
 	CreateEvent(ctx context.Context, event Event) (Event, error)
 	UpdateEvent(ctx context.Context, event Event) error
+	DeleteEvent(ctx context.Context, id int64) error
 }
 
 type sqliteRepo struct {
@@ -225,6 +226,21 @@ func (r *sqliteRepo) UpdateEvent(ctx context.Context, event Event) error {
 			return ErrEventExists
 		}
 		return fmt.Errorf("updating event: %w", err)
+	}
+	rowsAffected, _ := res.RowsAffected()
+	if rowsAffected == 0 {
+		return repo.ErrNotFound
+	}
+	return nil
+}
+
+func (r *sqliteRepo) DeleteEvent(ctx context.Context, id int64) error {
+	res, err := squirrel.Delete("events").
+		Where(squirrel.Eq{"id": id}).
+		RunWith(r.db).
+		ExecContext(ctx)
+	if err != nil {
+		return fmt.Errorf("deleting event: %w", err)
 	}
 	rowsAffected, _ := res.RowsAffected()
 	if rowsAffected == 0 {

@@ -225,3 +225,24 @@ func Test_sqliteRepo_ListEvents_filter_by_LocationGroupID(t *testing.T) {
 		assert.Len(t, events, 0)
 	})
 }
+
+func Test_sqliteRepo_DeleteEvent(t *testing.T) {
+	testDB, cleanup, err := db.PrepareTestDB()
+	require.NoError(t, err, "Failed to prepare test DB")
+	t.Cleanup(cleanup)
+
+	eventRepo := NewRepo(testDB)
+
+	created, err := eventRepo.CreateEvent(t.Context(), Event{Name: "Kids Service", PlanningCenterID: "pc_evt_del"})
+	require.NoError(t, err)
+	require.NotZero(t, created.ID)
+
+	err = eventRepo.DeleteEvent(t.Context(), created.ID)
+	require.NoError(t, err)
+
+	_, err = eventRepo.GetEventByID(t.Context(), created.ID)
+	require.ErrorIs(t, err, repo.ErrNotFound)
+
+	err = eventRepo.DeleteEvent(t.Context(), created.ID)
+	require.ErrorIs(t, err, repo.ErrNotFound)
+}
