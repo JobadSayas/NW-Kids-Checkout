@@ -335,15 +335,37 @@ describe('checkoutsv1/checkouts', () => {
         expect(window.__test.getVisibleChildren()).toHaveLength(2);
     });
 
-    it('toggle button label reflects state', () => {
-        const window = loadWindow({ html: '<!doctype html><html><body><button id="toggle-confirmed-button" aria-pressed="false">Hide confirmed</button></body></html>' });
+    function hideConfirmedToggleWindow() {
+        return loadWindow({ html: '<!doctype html><html><body><input id="hide-confirmed-toggle" type="checkbox" role="switch" aria-label="Hide confirmed children"></body></html>' });
+    }
+
+    it('setHideConfirmed keeps the hide-confirmed toggle checked state in sync', () => {
+        const window = hideConfirmedToggleWindow();
+        const toggle = window.document.getElementById('hide-confirmed-toggle');
+
         window.__test.setHideConfirmed(true);
-        const button = window.document.getElementById('toggle-confirmed-button');
-        expect(button.textContent).toBe('Show confirmed');
-        expect(button.getAttribute('aria-pressed')).toBe('true');
+        expect(toggle.checked).toBe(true);
+
         window.__test.setHideConfirmed(false);
-        expect(button.textContent).toBe('Hide confirmed');
-        expect(button.getAttribute('aria-pressed')).toBe('false');
+        expect(toggle.checked).toBe(false);
+    });
+
+    it('changing the hide-confirmed toggle updates the confirmed filter', () => {
+        const window = hideConfirmedToggleWindow();
+        window.document.dispatchEvent(new window.Event('DOMContentLoaded'));
+        window.__test.setChildrenData([
+            { id: 'pc:1', first_name: 'A', last_name: 'B', security_code: '1', source: 'planning_center', checked_out_confirmed_at: '2026-08-18T10:00:00Z' },
+            { id: 'pc:2', first_name: 'C', last_name: 'D', security_code: '2', source: 'planning_center', checked_out_confirmed_at: null }
+        ]);
+
+        const toggle = window.document.getElementById('hide-confirmed-toggle');
+        toggle.checked = true;
+        toggle.dispatchEvent(new window.Event('change'));
+        expect(window.__test.getVisibleChildren().map((c) => c.id)).toEqual(['pc:2']);
+
+        toggle.checked = false;
+        toggle.dispatchEvent(new window.Event('change'));
+        expect(window.__test.getVisibleChildren()).toHaveLength(2);
     });
 
     it('search toggle button expands and collapses the search controls', () => {
@@ -368,6 +390,27 @@ describe('checkoutsv1/checkouts', () => {
         expect(controls.classList.contains('is-expanded')).toBe(false);
         expect(toggle.getAttribute('aria-expanded')).toBe('false');
         expect(icon.classList.contains('rotate-180')).toBe(false);
+    });
+
+    it('re-measures expanded search controls height on window resize', () => {
+        const window = loadWindow({
+            html: '<!doctype html><html><body><button id="search-toggle-button" aria-expanded="false"><svg data-search-toggle-icon></svg></button><div id="search-controls"></div></body></html>'
+        });
+        window.document.dispatchEvent(new window.Event('DOMContentLoaded'));
+        const toggle = window.document.getElementById('search-toggle-button');
+        const controls = window.document.getElementById('search-controls');
+
+        toggle.click();
+        const measuredHeight = controls.style.height;
+
+        controls.style.height = '123px';
+        window.dispatchEvent(new window.Event('resize'));
+        expect(controls.style.height).toBe(measuredHeight);
+
+        toggle.click();
+        controls.style.height = '456px';
+        window.dispatchEvent(new window.Event('resize'));
+        expect(controls.style.height).toBe('456px');
     });
 
     it('renders no-unconfirmed message when hiding confirmed empties the board', () => {

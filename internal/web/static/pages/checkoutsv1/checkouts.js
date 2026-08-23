@@ -172,10 +172,9 @@ function setSearchQuery(query) {
 
 function setHideConfirmed(hidden) {
     hideConfirmed = Boolean(hidden);
-    const button = document.getElementById('toggle-confirmed-button');
-    if (button) {
-        button.textContent = hideConfirmed ? 'Show confirmed' : 'Hide confirmed';
-        button.setAttribute('aria-pressed', String(hideConfirmed));
+    const toggle = document.getElementById('hide-confirmed-toggle');
+    if (toggle) {
+        toggle.checked = hideConfirmed;
     }
     updateUI();
 }
@@ -631,8 +630,8 @@ document.addEventListener('DOMContentLoaded', function () {
     const searchInput = document.getElementById('search-input');
     if (searchInput) searchInput.addEventListener('input', () => setSearchQuery(searchInput.value));
 
-    const toggleButton = document.getElementById('toggle-confirmed-button');
-    if (toggleButton) toggleButton.addEventListener('click', () => setHideConfirmed(!hideConfirmed));
+    const hideConfirmedToggle = document.getElementById('hide-confirmed-toggle');
+    if (hideConfirmedToggle) hideConfirmedToggle.addEventListener('change', () => setHideConfirmed(hideConfirmedToggle.checked));
 
     const searchToggleButton = document.getElementById('search-toggle-button');
     const searchControls = document.getElementById('search-controls');
@@ -657,6 +656,11 @@ document.addEventListener('DOMContentLoaded', function () {
             searchToggleIcon?.classList.toggle('rotate-180', expanded);
             if (expanded) {
                 searchInput?.focus();
+            }
+        });
+        window.addEventListener('resize', () => {
+            if (searchControls.classList.contains('is-expanded')) {
+                searchControls.style.height = `${searchControls.scrollHeight}px`;
             }
         });
     }

@@ -37,6 +37,10 @@
             filter: var(--confirmed-filter);
         }
 
+        #search-input::-webkit-search-cancel-button {
+            cursor: pointer;
+        }
+
         #search-controls {
             height: 0;
             min-height: 0;
@@ -54,16 +58,6 @@
         }
         #search-controls.is-expanded .search-controls-panel {
             transform: scaleY(1);
-        }
-        @media (min-width: 768px) {
-            #search-controls {
-                height: auto !important;
-                opacity: 1 !important;
-                overflow: visible;
-            }
-            #search-controls .search-controls-panel {
-                transform: none;
-            }
         }
 
         @keyframes new-child-flash {
@@ -86,7 +80,7 @@
          class="absolute right-0 bottom-0 h-[200px] w-auto m:h-auto object-cover object-bottom lg:h-auto lg:w-[40%] z-0">
 </div>
 
-<header class="relative flex justify-between items-center w-full z-20 px-6 py-4 lg:fixed">
+<header class="relative flex justify-between items-center w-full z-20 px-6 pt-4 lg:fixed">
     <div class="flex justify-between items-center">
         <a href="/">
             <img src="/static/img/NWKids-logo.svg" alt="NWKids Logo" class="h-16 md:h-24 w-auto">
@@ -106,10 +100,11 @@
             aria-expanded="false"
             aria-controls="search-controls"
             aria-label="Toggle search"
-            class="md:hidden cursor-pointer rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+            class="cursor-pointer rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
         >
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="h-5 w-5 transition-transform duration-300" data-search-toggle-icon>
-                <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.111-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" />
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
             </svg>
         </button>
 
@@ -146,9 +141,9 @@
 
 <!-- Main Content -->
 <div class="relative z-10 min-h-screen flex flex-col box-border lg:h-screen lg:pt-28">
-    <div class="relative z-10 flex flex-col items-center gap-2 px-4 pb-2 md:pt-4 md:flex-row md:justify-center md:gap-3">
+    <div class="relative z-10 flex flex-col items-center gap-2 px-4 md:flex-row md:justify-center md:gap-3">
         <div id="search-controls" class="w-full max-w-md md:flex-1 md:max-w-2xl">
-            <div class="overflow-hidden search-controls-panel">
+            <div class="overflow-hidden search-controls-panel pb-2 md:pt-4">
                 <div class="flex flex-col items-center gap-2 md:flex-row md:items-center md:gap-3">
                     <input
                         id="search-input"
@@ -157,14 +152,20 @@
                         placeholder="Search by name or code"
                         class="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-base shadow-sm focus:border-slate-500 focus:outline-none md:flex-1 md:min-w-0"
                     />
-                    <button
-                        id="toggle-confirmed-button"
-                        type="button"
-                        aria-pressed="false"
-                        class="cursor-pointer rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
-                    >
+                    <label class="inline-flex cursor-pointer select-none items-center gap-2 text-sm font-medium text-slate-700">
                         Hide confirmed
-                    </button>
+                        <span class="relative inline-flex h-5 w-9 shrink-0 items-center">
+                            <input
+                                id="hide-confirmed-toggle"
+                                type="checkbox"
+                                role="switch"
+                                aria-label="Hide confirmed children"
+                                class="peer absolute h-0 w-0 opacity-0"
+                            />
+                            <span class="pointer-events-none absolute inset-0 rounded-full bg-slate-200 transition-colors duration-200 peer-checked:bg-emerald-500"></span>
+                            <span class="pointer-events-none absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform duration-200 peer-checked:translate-x-4"></span>
+                        </span>
+                    </label>
                 </div>
             </div>
         </div>
