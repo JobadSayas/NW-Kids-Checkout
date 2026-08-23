@@ -56,7 +56,7 @@ web-lr:
 
 .PHONY: checkout-fetcher
 checkout-fetcher: build
-	godotenv $(BIN_PATH) checkout-fetcher
+	godotenv $(BIN_PATH) checkout-fetcher --use-check-windows --service
 
 .PHONY: test
 test:
