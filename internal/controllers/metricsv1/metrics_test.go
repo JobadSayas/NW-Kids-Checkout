@@ -91,6 +91,81 @@ func TestController_GetMetrics_RequiresAdmin(t *testing.T) {
 	assert.Equal(t, fiber.StatusForbidden, resp.StatusCode)
 }
 
+func TestController_GetFetchLatency(t *testing.T) {
+	app, store := setupAuthedApp("admin")
+
+	mockRepo := &metrics.MockRepo{
+		ListFetchLatencyFunc: func(ctx context.Context, filter metrics.Filter) ([]metrics.FetchLatencyMetric, error) {
+			assert.Equal(t, 14, filter.Days)
+			return []metrics.FetchLatencyMetric{
+				{Date: "2026-08-18", Count: 120, AvgMs: 1234.567, P95Ms: 3456.789, P99Ms: 9876.543},
+			}, nil
+		},
+	}
+
+	controller := NewController(mockRepo, store)
+	controller.RegisterRoutes(app)
+
+	t.Run("returns fetch latency rows", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/v1/admin/metrics/fetch-latency", nil)
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		assert.Equal(t, fiber.StatusOK, resp.StatusCode)
+
+		var payload FetchLatencyResponse
+		err = json.NewDecoder(resp.Body).Decode(&payload)
+		require.NoError(t, err)
+		require.Len(t, payload.Rows, 1)
+		assert.Equal(t, 14, payload.Days)
+		assert.Equal(t, "2026-08-18", payload.Rows[0].Date)
+		assert.Equal(t, 120, payload.Rows[0].Count)
+		assert.Equal(t, 1234.57, payload.Rows[0].AvgMs)
+		assert.Equal(t, 3456.79, payload.Rows[0].P95Ms)
+		assert.Equal(t, 9876.54, payload.Rows[0].P99Ms)
+	})
+
+	t.Run("invalid days returns bad request", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/v1/admin/metrics/fetch-latency?days=abc", nil)
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		assert.Equal(t, fiber.StatusBadRequest, resp.StatusCode)
+	})
+
+	t.Run("empty rows", func(t *testing.T) {
+		app2, store2 := setupAuthedApp("admin")
+		mockRepo2 := &metrics.MockRepo{
+			ListFetchLatencyFunc: func(ctx context.Context, filter metrics.Filter) ([]metrics.FetchLatencyMetric, error) {
+				return nil, nil
+			},
+		}
+		controller2 := NewController(mockRepo2, store2)
+		controller2.RegisterRoutes(app2)
+
+		req := httptest.NewRequest("GET", "/v1/admin/metrics/fetch-latency?days=7", nil)
+		resp, err := app2.Test(req)
+		require.NoError(t, err)
+		assert.Equal(t, fiber.StatusOK, resp.StatusCode)
+
+		var payload FetchLatencyResponse
+		err = json.NewDecoder(resp.Body).Decode(&payload)
+		require.NoError(t, err)
+		assert.Equal(t, 7, payload.Days)
+		assert.Empty(t, payload.Rows)
+	})
+}
+
+func TestController_GetFetchLatency_RequiresAdmin(t *testing.T) {
+	app, store := setupAuthedApp("user")
+
+	controller := NewController(&metrics.MockRepo{}, store)
+	controller.RegisterRoutes(app)
+
+	req := httptest.NewRequest("GET", "/v1/admin/metrics/fetch-latency", nil)
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, fiber.StatusForbidden, resp.StatusCode)
+}
+
 func setupAuthedApp(role string) (*fiber.App, *session.Store) {
 	app := fiber.New()
 	store := session.New()

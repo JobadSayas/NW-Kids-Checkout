@@ -6,7 +6,7 @@ import { JSDOM } from 'jsdom';
 const scriptPath = path.resolve(process.cwd(), 'internal/web/static/pages/admin/metrics.js');
 const script = fs.readFileSync(scriptPath, 'utf8');
 const exposeInternals = `
-window.__test = { renderMetrics, loadMetrics };
+window.__test = { renderMetrics, renderFetchLatency, renderFetchLatencyRows, loadMetrics, loadFetchLatency };
 `;
 
 const fixtureHtml = `<!doctype html>
@@ -14,8 +14,14 @@ const fixtureHtml = `<!doctype html>
         <body>
             <div id="page-status" class="hidden"></div>
             <div id="metrics-error" class="hidden"></div>
-            <div id="metrics-days"><option value="7">7</option><option value="14" selected>14</option><option value="30">30</option></div>
+            <select id="metrics-days"><option value="7">7</option><option value="14" selected>14</option><option value="30">30</option></select>
             <div id="metrics-body"></div>
+            <div id="tab-daily" role="tab" aria-selected="true"></div>
+            <div id="tab-fetch-latency" role="tab" aria-selected="false"></div>
+            <div id="view-daily"></div>
+            <div id="view-fetch-latency" class="hidden"></div>
+            <div id="fetch-latency-body"></div>
+            <canvas id="fetch-latency-chart"></canvas>
         </body>
     </html>`;
 
@@ -67,5 +73,63 @@ describe('admin/metrics', () => {
         const data = await window.__test.loadMetrics(7);
         expect(calls[0]).toContain('days=7');
         expect(data.days).toBe(7);
+    });
+
+    it('loadFetchLatency builds URL with fetch-latency path and days param', async () => {
+        const calls = [];
+        const fetchImpl = async (url) => {
+            calls.push(url);
+            return { ok: true, status: 200, json: async () => ({ days: 14, rows: [] }), text: async () => '' };
+        };
+        const window = loadWindow(fetchImpl);
+        const data = await window.__test.loadFetchLatency(14);
+        expect(calls[0]).toContain('/fetch-latency?days=14');
+        expect(data.days).toBe(14);
+    });
+
+    it('renderFetchLatency renders table rows and empty state', () => {
+        const window = loadWindow();
+        window.__test.renderFetchLatency({
+            days: 14,
+            rows: [
+                { date: '2026-08-18', count: 3, avg_ms: 1500, p95_ms: 2500, p99_ms: 3000 },
+            ],
+        });
+        let html = window.document.getElementById('fetch-latency-body').innerHTML;
+        expect(html).toContain('2026-08-18');
+        expect(html).toContain('1,500');
+        expect(html).toContain('2,500');
+        expect(html).toContain('3,000');
+
+        window.__test.renderFetchLatency({ days: 14, rows: [] });
+        html = window.document.getElementById('fetch-latency-body').innerHTML;
+        expect(html).toContain('No data yet.');
+    });
+
+    it('main switches tabs and fetches the right endpoint', async () => {
+        const calls = [];
+        const fetchImpl = async (url) => {
+            calls.push(url);
+            return { ok: true, status: 200, json: async () => ({ days: 14, daily: [], rows: [] }), text: async () => '' };
+        };
+        const window = loadWindow(fetchImpl);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        // Initial load hits the daily endpoint.
+        expect(calls[0]).toContain('/v1/admin/metrics?days=14');
+
+        const latencyTab = window.document.getElementById('tab-fetch-latency');
+        latencyTab.click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(calls[1]).toContain('/v1/admin/metrics/fetch-latency?days=14');
+        expect(window.document.getElementById('view-fetch-latency').classList.contains('hidden')).toBe(false);
+        expect(window.document.getElementById('view-daily').classList.contains('hidden')).toBe(true);
+
+        const dailyTab = window.document.getElementById('tab-daily');
+        dailyTab.click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(calls[2]).toContain('/v1/admin/metrics?days=14');
+        expect(window.document.getElementById('view-daily').classList.contains('hidden')).toBe(false);
+        expect(window.document.getElementById('view-fetch-latency').classList.contains('hidden')).toBe(true);
     });
 });

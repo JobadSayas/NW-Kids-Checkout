@@ -9,6 +9,15 @@ async function loadMetrics(days) {
   return response.json();
 }
 
+async function loadFetchLatency(days) {
+  const response = await fetch(`${API_URL}/v1/admin/metrics/fetch-latency?days=${days}`);
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.message || `failed to load fetch latency (${response.status})`);
+  }
+  return response.json();
+}
+
 function escapeHtml(value) {
   return String(value)
     .replace(/&/g, '&amp;')
@@ -39,22 +48,101 @@ function renderMetrics(data) {
   }
 }
 
+function formatMs(value) {
+  if (value === null || value === undefined) return '-';
+  return Number(value).toLocaleString('en-US', { maximumFractionDigits: 2 });
+}
+
+function renderFetchLatencyRows(rows) {
+  const body = document.getElementById('fetch-latency-body');
+  if (!body) return;
+  body.innerHTML = rows
+    .map(
+      (row) => `
+        <tr class="border-b border-slate-100">
+          <td class="px-4 py-3 text-slate-600">${escapeHtml(row.date)}</td>
+          <td class="px-4 py-3 text-slate-800">${row.count}</td>
+          <td class="px-4 py-3 text-slate-800">${formatMs(row.avg_ms)}</td>
+          <td class="px-4 py-3 text-slate-600">${formatMs(row.p95_ms)}</td>
+          <td class="px-4 py-3 text-slate-600">${formatMs(row.p99_ms)}</td>
+        </tr>`,
+    )
+    .join('');
+  if (rows.length === 0) {
+    body.innerHTML = '<tr><td colspan="5" class="px-4 py-8 text-center text-slate-500">No data yet.</td></tr>';
+  }
+}
+
+function renderFetchLatencyChart(data) {
+  const canvas = document.getElementById('fetch-latency-chart');
+  if (!canvas || typeof Chart === 'undefined') return;
+  const labels = data.rows.map((row) => row.date);
+  const datasets = [
+    { label: 'Avg', data: data.rows.map((row) => row.avg_ms), borderColor: '#0f766e', backgroundColor: 'rgba(15, 118, 110, 0.15)', tension: 0.2 },
+    { label: 'p95', data: data.rows.map((row) => row.p95_ms), borderColor: '#b45309', backgroundColor: 'rgba(180, 83, 9, 0.15)', tension: 0.2 },
+    { label: 'p99', data: data.rows.map((row) => row.p99_ms), borderColor: '#b91c1c', backgroundColor: 'rgba(185, 28, 28, 0.15)', tension: 0.2 },
+  ];
+  const existing = Chart.getChart(canvas);
+  if (existing) existing.destroy();
+  new Chart(canvas, {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        y: { beginAtZero: true, title: { display: true, text: 'ms' } },
+      },
+      plugins: {
+        legend: { position: 'bottom' },
+        tooltip: { callbacks: { label: (ctx) => ` ${ctx.dataset.label}: ${formatMs(ctx.parsed.y)} ms` } },
+      },
+    },
+  });
+}
+
+function renderFetchLatency(data) {
+  renderFetchLatencyRows(data.rows);
+  renderFetchLatencyChart(data);
+}
+
 async function main() {
   const statusEl = document.getElementById('metrics-error');
   const daysEl = document.getElementById('metrics-days');
-  const load = async () => {
+  const tabDaily = document.getElementById('tab-daily');
+  const tabLatency = document.getElementById('tab-fetch-latency');
+  const viewDaily = document.getElementById('view-daily');
+  const viewLatency = document.getElementById('view-fetch-latency');
+
+  const setTab = (latency) => {
+    if (tabDaily) tabDaily.setAttribute('aria-selected', String(!latency));
+    if (tabLatency) tabLatency.setAttribute('aria-selected', String(latency));
+    if (viewDaily) viewDaily.classList.toggle('hidden', latency);
+    if (viewLatency) viewLatency.classList.toggle('hidden', !latency);
+  };
+
+  const load = async (latency) => {
     try {
-      const data = await loadMetrics(daysEl ? daysEl.value : 14);
-      renderMetrics(data);
+      if (latency) {
+        const data = await loadFetchLatency(daysEl ? daysEl.value : 14);
+        renderFetchLatency(data);
+      } else {
+        const data = await loadMetrics(daysEl ? daysEl.value : 14);
+        renderMetrics(data);
+      }
       if (statusEl) statusEl.textContent = '';
     } catch (error) {
       if (statusEl) statusEl.textContent = error.message;
     }
   };
-  if (daysEl) daysEl.addEventListener('change', load);
-  await load();
+
+  if (tabDaily) tabDaily.addEventListener('click', () => { setTab(false); load(false); });
+  if (tabLatency) tabLatency.addEventListener('click', () => { setTab(true); load(true); });
+  if (daysEl) daysEl.addEventListener('change', () => load(tabLatency && tabLatency.getAttribute('aria-selected') === 'true'));
+  await load(false);
 }
 
 document.addEventListener('DOMContentLoaded', main);
 
-window.__test = { renderMetrics, loadMetrics };
+window.__test = { renderMetrics, renderFetchLatency, renderFetchLatencyRows, loadMetrics, loadFetchLatency };

@@ -1118,14 +1118,19 @@ func getClients(db *sql.DB) (planningcenter.Client, checkin.Repo, location.Repo,
 				locID = loc.PlanningCenterID
 			}
 
+			checkedOutAt := time.Now().UTC()
+			// The mock stamps FetchedAt a little after CheckedOutAt so the
+			// fetch-latency metric has meaningful data when run against the mock.
+			fetchedAt := checkedOutAt.Add(time.Duration(rand.Intn(15)) * time.Second)
+
 			return []planningcenter.Checkout{
 				{
 					ID:                       "pccheckoutevent_" + uuid.New().String(),
 					FirstName:                static.RandomFirstName(),
 					LastName:                 static.RandomLastName(),
 					SecurityCode:             strings.ToUpper(uuid.New().String()[:4]),
-					CheckedOutAt:             time.Now().UTC(),
-					FetchedAt:                time.Now().UTC(),
+					CheckedOutAt:             checkedOutAt,
+					FetchedAt:                fetchedAt,
 					PlanningCenterLocationID: locID,
 				},
 			}, nil
