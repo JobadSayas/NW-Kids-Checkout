@@ -15,14 +15,18 @@ help:
 db-reset:
 	rm -f $(KIDS_CHECKIN_DB_FILE) && \
     touch $(KIDS_CHECKIN_DB_FILE) && \
-    set -e; sqlite3 $(KIDS_CHECKIN_DB_FILE) < db/structure.sql
+    set -e; sqlite3 $(KIDS_CHECKIN_DB_FILE) < db/structure.sql && \
+    latest=$$(ls db/migrations/*.up.sqlite | sort | tail -1 | xargs basename | cut -d_ -f1) && \
+    sqlite3 $(KIDS_CHECKIN_DB_FILE) "CREATE TABLE IF NOT EXISTS schema_migrations (version uint64, dirty bool); \
+        CREATE UNIQUE INDEX IF NOT EXISTS version_unique ON schema_migrations (version); \
+        INSERT INTO schema_migrations (version, dirty) VALUES ($$latest, 0);"
 
 .PHONY: db-migrate
 db-migrate:
 	@tmpdb=$$(mktemp) && \
 	sqlite3 $$tmpdb < db/pragmas.sqlite && \
 	migrate -source file://db/migrations -database "sqlite3://$$tmpdb" up && \
-	sqlite3 $$tmpdb .schema > db/structure.sql && \
+	sqlite3 $$tmpdb .schema | grep -v -e '^CREATE TABLE schema_migrations' -e '^CREATE UNIQUE INDEX version_unique ON schema_migrations' > db/structure.sql && \
 	rm -f $$tmpdb && \
 	migrate -source file://db/migrations -database "sqlite3://$(KIDS_CHECKIN_DB_FILE)" up
 

@@ -1,7 +1,3 @@
-CREATE TABLE schema_migrations (version uint64, dirty bool);
-
-CREATE UNIQUE INDEX version_unique ON schema_migrations (version);
-
 CREATE TABLE location_groups (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
 
 CREATE TABLE locations (
@@ -28,7 +24,8 @@ CREATE TABLE checkins (
     security_code TEXT NOT NULL,
     checked_out_at DATETIME DEFAULT NULL,
     checked_out_confirmed_at DATETIME DEFAULT NULL,
-    event_id DEFAULT NULL
+    event_id DEFAULT NULL,
+    fetched_at DATETIME DEFAULT NULL
 );
 
 CREATE INDEX idx_checked_out_at ON checkins (checked_out_at);
