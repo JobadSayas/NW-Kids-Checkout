@@ -556,6 +556,11 @@ func Test_getFilteredResults(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			gotData, gotDone := getFilteredResults(tt.args.decoded, tt.args.checkedOutOnOrAfter, tt.args.limit)
+			for i := range gotData {
+				assert.False(t, gotData[i].FetchedAt.IsZero())
+				assert.Equal(t, time.UTC, gotData[i].FetchedAt.Location())
+				gotData[i].FetchedAt = time.Time{}
+			}
 			assert.Equal(t, tt.wantData, gotData)
 			assert.Equal(t, tt.wantDone, gotDone)
 		})

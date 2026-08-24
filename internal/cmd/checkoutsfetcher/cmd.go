@@ -812,6 +812,7 @@ func (s *Service) processEventCheckouts(ctx context.Context, ev event.Event, now
 			LastName:         checkout.LastName,
 			SecurityCode:     checkout.SecurityCode,
 			CheckedOutAt:     checkout.CheckedOutAt,
+			FetchedAt:        checkout.FetchedAt,
 		}
 
 		if _, err := s.checkinRepo.CreateCheckin(ctx, co); err != nil {
@@ -1124,6 +1125,7 @@ func getClients(db *sql.DB) (planningcenter.Client, checkin.Repo, location.Repo,
 					LastName:                 static.RandomLastName(),
 					SecurityCode:             strings.ToUpper(uuid.New().String()[:4]),
 					CheckedOutAt:             time.Now().UTC(),
+					FetchedAt:                time.Now().UTC(),
 					PlanningCenterLocationID: locID,
 				},
 			}, nil

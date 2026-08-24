@@ -235,6 +235,18 @@ func Test_sqliteRepo_CreateCheckin(t *testing.T) {
 				CheckedOutConfirmedAt: time.Time{},
 			},
 		},
+		{
+			name: "create checkin with fetched at",
+			arg: Checkin{
+				PlanningCenterID: "plc_1236",
+				LocationID:       1,
+				FirstName:        "somefirstname",
+				LastName:         "somelastname",
+				SecurityCode:     "ABC123",
+				CheckedOutAt:     time.Date(2022, 1, 1, 12, 0, 0, 0, time.UTC),
+				FetchedAt:        time.Date(2022, 1, 1, 12, 1, 30, 0, time.UTC),
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -251,6 +263,7 @@ func Test_sqliteRepo_CreateCheckin(t *testing.T) {
 			assert.Equal(t, tt.arg.LastName, actual.LastName)
 			assert.Equal(t, tt.arg.SecurityCode, actual.SecurityCode)
 			assert.Equal(t, tt.arg.CheckedOutAt, actual.CheckedOutAt)
+			assert.Equal(t, tt.arg.FetchedAt, actual.FetchedAt)
 			assert.Equal(t, tt.arg.CheckedOutConfirmedAt, actual.CheckedOutConfirmedAt)
 
 			checkins, err := s.ListCheckins(t.Context(), Filter{
@@ -266,6 +279,7 @@ func Test_sqliteRepo_CreateCheckin(t *testing.T) {
 			assert.Equal(t, actual.LastName, checkins[0].LastName)
 			assert.Equal(t, actual.SecurityCode, checkins[0].SecurityCode)
 			assert.Equal(t, actual.CheckedOutAt, checkins[0].CheckedOutAt)
+			assert.Equal(t, actual.FetchedAt, checkins[0].FetchedAt)
 			assert.Equal(t, actual.CheckedOutConfirmedAt, checkins[0].CheckedOutConfirmedAt)
 		})
 	}
@@ -309,6 +323,91 @@ func Test_sqliteRepo_CreateCheckin_ConflictUpdatesCheckedOutAt(t *testing.T) {
 	assert.Equal(t, first.ID, checkins[0].ID)
 	assert.Equal(t, updated, checkins[0].CheckedOutAt)
 	assert.Equal(t, updatedConfirmed, checkins[0].CheckedOutConfirmedAt)
+}
+
+func Test_sqliteRepo_CreateCheckin_ConflictPreservesFetchedAt(t *testing.T) {
+	s := NewRepo(testDB)
+	_, err := squirrel.Delete("checkins").RunWith(testDB).ExecContext(t.Context())
+	require.NoError(t, err)
+
+	start := time.Date(2022, 1, 1, 12, 0, 0, 0, time.UTC)
+	updated := start.Add(2 * time.Hour)
+	firstFetch := start.Add(5 * time.Minute)
+	dupeFetch := updated.Add(5 * time.Minute)
+
+	first, err := s.CreateCheckin(t.Context(), Checkin{
+		PlanningCenterID: "plc_fetched_conflict",
+		LocationID:       1,
+		EventID:          7,
+		FirstName:        "first",
+		LastName:         "last",
+		SecurityCode:     "ABC123",
+		CheckedOutAt:     start,
+		FetchedAt:        firstFetch,
+	})
+	require.NoError(t, err)
+
+	_, err = s.CreateCheckin(t.Context(), Checkin{
+		PlanningCenterID: "plc_fetched_conflict",
+		LocationID:       1,
+		EventID:          7,
+		FirstName:        "first",
+		LastName:         "last",
+		SecurityCode:     "ABC123",
+		CheckedOutAt:     updated,
+		FetchedAt:        dupeFetch,
+	})
+	require.NoError(t, err)
+
+	checkins, err := s.ListCheckins(t.Context(), Filter{PlanningCenterID: "plc_fetched_conflict"})
+	require.NoError(t, err)
+	require.Len(t, checkins, 1)
+	assert.Equal(t, first.ID, checkins[0].ID)
+	assert.Equal(t, updated, checkins[0].CheckedOutAt)
+	assert.Equal(t, firstFetch, checkins[0].FetchedAt)
+}
+
+func Test_sqliteRepo_CreateCheckin_ConflictBackfillsFetchedAt(t *testing.T) {
+	s := NewRepo(testDB)
+	_, err := squirrel.Delete("checkins").RunWith(testDB).ExecContext(t.Context())
+	require.NoError(t, err)
+
+	start := time.Date(2022, 1, 1, 12, 0, 0, 0, time.UTC)
+	updated := start.Add(2 * time.Hour)
+	firstFetch := updated.Add(5 * time.Minute)
+
+	// First row mirrors a checkin created before the fetched_at column existed:
+	// FetchedAt is zero, so the column is stored as NULL.
+	first, err := s.CreateCheckin(t.Context(), Checkin{
+		PlanningCenterID: "plc_fetched_backfill",
+		LocationID:       1,
+		EventID:          7,
+		FirstName:        "first",
+		LastName:         "last",
+		SecurityCode:     "ABC123",
+		CheckedOutAt:     start,
+	})
+	require.NoError(t, err)
+
+	// A re-fetch with no stored value backfills fetched_at via COALESCE.
+	_, err = s.CreateCheckin(t.Context(), Checkin{
+		PlanningCenterID: "plc_fetched_backfill",
+		LocationID:       1,
+		EventID:          7,
+		FirstName:        "first",
+		LastName:         "last",
+		SecurityCode:     "ABC123",
+		CheckedOutAt:     updated,
+		FetchedAt:        firstFetch,
+	})
+	require.NoError(t, err)
+
+	checkins, err := s.ListCheckins(t.Context(), Filter{PlanningCenterID: "plc_fetched_backfill"})
+	require.NoError(t, err)
+	require.Len(t, checkins, 1)
+	assert.Equal(t, first.ID, checkins[0].ID)
+	assert.Equal(t, updated, checkins[0].CheckedOutAt)
+	assert.Equal(t, firstFetch, checkins[0].FetchedAt)
 }
 
 func Test_sqliteRepo_CreateCheckin_ConflictPreservesExistingEventIDWhenUnset(t *testing.T) {

@@ -13,11 +13,13 @@ import (
 	"time"
 
 	"kids-checkin/internal/client/planningcenter"
+	"kids-checkin/internal/db"
 	"kids-checkin/internal/logger"
 	"kids-checkin/internal/repo/checkin"
 	"kids-checkin/internal/repo/event"
 	"kids-checkin/internal/repo/eventcheckwindow"
 
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/urfave/cli/v3"
@@ -266,6 +268,90 @@ func Test_processEventCheckouts_createsCheckinsAndUpdatesEvent(t *testing.T) {
 	assert.Equal(t, "Jane", createdCheckins[1].FirstName)
 
 	assert.True(t, events[0].LastCheckedOutTime.After(time.Now().Add(-1*time.Minute)))
+}
+
+func Test_processEventCheckouts_passesThroughFetchedAt(t *testing.T) {
+	events := []event.Event{
+		{ID: 1, PlanningCenterID: "evt_1", AutoFetch: true, LastCheckedOutTime: time.Time{}},
+	}
+
+	eventRepo := &event.MockRepo{
+		GetEventByIDFunc: func(ctx context.Context, id int64) (event.Event, error) {
+			return events[0], nil
+		},
+		UpdateEventFunc: func(ctx context.Context, ev event.Event) error {
+			return nil
+		},
+	}
+
+	var createdCheckins []checkin.Checkin
+	checkinRepo := &checkin.MockRepo{
+		CreateCheckinFunc: func(ctx context.Context, c checkin.Checkin) (checkin.Checkin, error) {
+			c.ID = int64(len(createdCheckins) + 1)
+			createdCheckins = append(createdCheckins, c)
+			return c, nil
+		},
+	}
+
+	fetchedAt := time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC)
+	pcClient := &planningcenter.MockClient{
+		GetCheckoutsForEventFunc: func(ctx context.Context, eventID string, checkedOutOnOrAfter time.Time, limit int) ([]planningcenter.Checkout, error) {
+			return []planningcenter.Checkout{
+				{ID: "pc_checkout_1", FirstName: "John", LastName: "Doe", SecurityCode: "ABCD", PlanningCenterLocationID: "pc_loc_1", CheckedOutAt: fetchedAt.Add(-5 * time.Minute), FetchedAt: fetchedAt},
+			}, nil
+		},
+	}
+
+	locationIDMap := sync.Map{}
+	locationIDMap.Store("pc_loc_1", int64(5))
+
+	svc := testService(noCheckWindows(), eventRepo, checkinRepo, pcClient, &locationIDMap, 0, false)
+	err := svc.processEventCheckouts(t.Context(), events[0], svc.now())
+	require.NoError(t, err)
+
+	require.Len(t, createdCheckins, 1)
+	assert.Equal(t, fetchedAt, createdCheckins[0].FetchedAt)
+}
+
+func Test_processEventCheckouts_persistsFetchedAtToDB(t *testing.T) {
+	testDB, cleanup, err := db.PrepareTestDB()
+	require.NoError(t, err)
+	t.Cleanup(cleanup)
+
+	events := []event.Event{
+		{ID: 1, PlanningCenterID: "evt_1", AutoFetch: true, LastCheckedOutTime: time.Time{}},
+	}
+
+	eventRepo := &event.MockRepo{
+		GetEventByIDFunc: func(ctx context.Context, id int64) (event.Event, error) {
+			return events[0], nil
+		},
+		UpdateEventFunc: func(ctx context.Context, ev event.Event) error {
+			return nil
+		},
+	}
+
+	fetchedAt := time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC)
+	pcClient := &planningcenter.MockClient{
+		GetCheckoutsForEventFunc: func(ctx context.Context, eventID string, checkedOutOnOrAfter time.Time, limit int) ([]planningcenter.Checkout, error) {
+			return []planningcenter.Checkout{
+				{ID: "pc_checkout_1", FirstName: "John", LastName: "Doe", SecurityCode: "ABCD", PlanningCenterLocationID: "pc_loc_1", CheckedOutAt: fetchedAt.Add(-5 * time.Minute), FetchedAt: fetchedAt},
+			}, nil
+		},
+	}
+
+	locationIDMap := sync.Map{}
+	locationIDMap.Store("pc_loc_1", int64(5))
+
+	checkinRepo := checkin.NewRepo(testDB)
+	svc := testService(noCheckWindows(), eventRepo, checkinRepo, pcClient, &locationIDMap, 0, false)
+	err = svc.processEventCheckouts(t.Context(), events[0], svc.now())
+	require.NoError(t, err)
+
+	checkins, err := checkinRepo.ListCheckins(t.Context(), checkin.Filter{PlanningCenterID: "pc_checkout_1"})
+	require.NoError(t, err)
+	require.Len(t, checkins, 1)
+	assert.Equal(t, fetchedAt, checkins[0].FetchedAt)
 }
 
 func Test_processEventCheckouts_genericFetchError_nonFatal(t *testing.T) {

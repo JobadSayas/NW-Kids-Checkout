@@ -12,6 +12,7 @@ type Checkout struct {
 	FirstName                string
 	LastName                 string
 	CheckedOutAt             time.Time
+	FetchedAt                time.Time
 	SecurityCode             string
 	PlanningCenterLocationID string
 }

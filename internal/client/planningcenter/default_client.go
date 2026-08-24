@@ -437,6 +437,7 @@ func (client *defaultClient) getEventsByURL(ctx context.Context, getURL string) 
 }
 
 func getFilteredResults(decoded checkinResponse, checkedOutOnOrAfter time.Time, limit int) (data []Checkout, done bool) {
+	fetchedAt := time.Now().UTC()
 	for _, item := range decoded.Data {
 		if item.Attributes.CheckedOutAt.Before(checkedOutOnOrAfter.Add(-1 * time.Second)) {
 			done = true
@@ -453,6 +454,7 @@ func getFilteredResults(decoded checkinResponse, checkedOutOnOrAfter time.Time, 
 			FirstName:                item.Attributes.FirstName,
 			LastName:                 item.Attributes.LastName,
 			CheckedOutAt:             item.Attributes.CheckedOutAt,
+			FetchedAt:                fetchedAt,
 			SecurityCode:             item.Attributes.SecurityCode,
 			PlanningCenterLocationID: plLocationID,
 		})

@@ -36,6 +36,7 @@ type Checkin struct {
 	LastName              string
 	SecurityCode          string
 	CheckedOutAt          time.Time
+	FetchedAt             time.Time
 	CheckedOutConfirmedAt time.Time
 }
 
@@ -68,6 +69,7 @@ func (s *sqliteRepo) ListCheckins(ctx context.Context, filter Filter) ([]Checkin
 		"checkins.last_name",
 		"checkins.security_code",
 		"checkins.checked_out_at",
+		"checkins.fetched_at",
 		"checkins.checked_out_confirmed_at",
 	).From("checkins")
 
@@ -146,6 +148,7 @@ func (s *sqliteRepo) ListCheckins(ctx context.Context, filter Filter) ([]Checkin
 	for rows.Next() {
 		var checkin Checkin
 		var checkedOutAt sql.NullTime
+		var fetchedAt sql.NullTime
 		var checkedOutConfirmedAt sql.NullTime
 
 		err := rows.Scan(
@@ -156,6 +159,7 @@ func (s *sqliteRepo) ListCheckins(ctx context.Context, filter Filter) ([]Checkin
 			&checkin.LastName,
 			&checkin.SecurityCode,
 			&checkedOutAt,
+			&fetchedAt,
 			&checkedOutConfirmedAt,
 		)
 		if err != nil {
@@ -164,6 +168,10 @@ func (s *sqliteRepo) ListCheckins(ctx context.Context, filter Filter) ([]Checkin
 
 		if checkedOutAt.Valid {
 			checkin.CheckedOutAt = checkedOutAt.Time
+		}
+
+		if fetchedAt.Valid {
+			checkin.FetchedAt = fetchedAt.Time
 		}
 
 		if checkedOutConfirmedAt.Valid {
@@ -192,8 +200,14 @@ func (s *sqliteRepo) CreateCheckin(ctx context.Context, checkin Checkin) (Checki
 		checkedOutConfirmedAt = &tt
 	}
 
-	columns := []string{"planning_center_id", "location_id", "first_name", "last_name", "security_code", "checked_out_at", "checked_out_confirmed_at"}
-	values := []any{checkin.PlanningCenterID, checkin.LocationID, checkin.FirstName, checkin.LastName, checkin.SecurityCode, checkedOutAt, checkedOutConfirmedAt}
+	var fetchedAt *time.Time
+	if !checkin.FetchedAt.IsZero() {
+		tt := checkin.FetchedAt.UTC()
+		fetchedAt = &tt
+	}
+
+	columns := []string{"planning_center_id", "location_id", "first_name", "last_name", "security_code", "checked_out_at", "fetched_at", "checked_out_confirmed_at"}
+	values := []any{checkin.PlanningCenterID, checkin.LocationID, checkin.FirstName, checkin.LastName, checkin.SecurityCode, checkedOutAt, fetchedAt, checkedOutConfirmedAt}
 	if checkin.EventID > 0 {
 		columns = append(columns, "event_id")
 		values = append(values, checkin.EventID)
@@ -203,10 +217,12 @@ func (s *sqliteRepo) CreateCheckin(ctx context.Context, checkin Checkin) (Checki
 	// checked_out_confirmed_at columns with the values passed in, clearing them
 	// (setting NULL) when the incoming value is unset. This is intended behavior:
 	// a re-fetched checkout from Planning Center carries no confirmation
-	// timestamp, so its upsert resets the confirmed time to NULL.
-	conflictSuffix := squirrel.Expr("ON CONFLICT(planning_center_id) DO UPDATE SET checked_out_at = ?, checked_out_confirmed_at = ?", checkedOutAt, checkedOutConfirmedAt)
+	// timestamp, so its upsert resets the confirmed time to NULL. fetched_at is
+	// different: first fetch wins. The existing value is kept via COALESCE so a
+	// duplicate fetch never moves it, while a pre-existing NULL gets backfilled.
+	conflictSuffix := squirrel.Expr("ON CONFLICT(planning_center_id) DO UPDATE SET checked_out_at = ?, checked_out_confirmed_at = ?, fetched_at = COALESCE(fetched_at, excluded.fetched_at)", checkedOutAt, checkedOutConfirmedAt)
 	if checkin.EventID > 0 {
-		conflictSuffix = squirrel.Expr("ON CONFLICT(planning_center_id) DO UPDATE SET checked_out_at = ?, checked_out_confirmed_at = ?, event_id = ?", checkedOutAt, checkedOutConfirmedAt, checkin.EventID)
+		conflictSuffix = squirrel.Expr("ON CONFLICT(planning_center_id) DO UPDATE SET checked_out_at = ?, checked_out_confirmed_at = ?, fetched_at = COALESCE(fetched_at, excluded.fetched_at), event_id = ?", checkedOutAt, checkedOutConfirmedAt, checkin.EventID)
 	}
 
 	builder := squirrel.Insert("checkins").
