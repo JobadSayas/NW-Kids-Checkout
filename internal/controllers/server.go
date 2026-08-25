@@ -1,12 +1,14 @@
 package controllers
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"kids-checkin/internal/controllers/admin"
 	"kids-checkin/internal/controllers/login"
 	"kids-checkin/internal/controllers/middleware"
+	"kids-checkin/internal/telemetry"
 	"log/slog"
 	"net/http"
 	"path/filepath"
@@ -25,14 +27,34 @@ import (
 	"kids-checkin/internal/repo/metrics"
 	"kids-checkin/internal/web/static"
 
+	"github.com/gofiber/contrib/otelfiber"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/filesystem"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/gofiber/fiber/v2/middleware/session"
 	"github.com/gofiber/storage/sqlite3"
+	"go.opentelemetry.io/contrib/instrumentation/runtime"
 )
 
+const apiServiceName = "kids-checkin-api"
+
 func StartServer(port int, dbFilepath string) error {
+	tel, err := telemetry.Setup(context.Background(), apiServiceName)
+	if err != nil {
+		return fmt.Errorf("setting up telemetry: %w", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if shutdownErr := tel.Shutdown(shutdownCtx); shutdownErr != nil {
+			slog.Warn("telemetry shutdown failed", slog.String("error", shutdownErr.Error()))
+		}
+	}()
+
+	if runtimeErr := runtime.Start(); runtimeErr != nil {
+		slog.Warn("runtime metrics unavailable", slog.String("error", runtimeErr.Error()))
+	}
+
 	database, err := db.InitDB(dbFilepath)
 	if err != nil {
 		panic(err)
@@ -92,6 +114,19 @@ func StartServer(port int, dbFilepath string) error {
 		},
 	})
 	app.Use(middleware.RequestLogger())
+	if tel.Enabled() {
+		app.Use(otelfiber.Middleware(
+			otelfiber.WithTracerProvider(tel.TracerProvider),
+			otelfiber.WithSpanNameFormatter(func(c *fiber.Ctx) string {
+				return c.Route().Path
+			}),
+		))
+		httpMetrics, metricsErr := middleware.HTTPMetrics(tel.Meter(apiServiceName))
+		if metricsErr != nil {
+			return fmt.Errorf("creating http metrics middleware: %w", metricsErr)
+		}
+		app.Use(httpMetrics)
+	}
 	app.Use(middleware.HTTPAccessLogger())
 	app.Use(recover.New())
 

@@ -142,6 +142,12 @@ This file guides coding agents working in this repo. Keep changes small, follow 
 - Do not log or commit secrets; use `.env` and `godotenv` when running locally.
 - Runtime configuration is typically via env vars (see `internal/cmd/*` flags).
 
+### OpenTelemetry (tracing + metrics)
+- Setup lives in `internal/telemetry` (`Setup`, used by both the API server and the checkout-fetcher worker).
+- Disabled (no-op, zero overhead) unless `OTEL_EXPORTER_OTLP_ENDPOINT` is set; otherwise traces and metrics export via OTLP gRPC. Standard `OTEL_*` env vars control endpoint, headers, sampling, timeout.
+- HTTP tracing uses `github.com/gofiber/contrib/otelfiber` (the v1 module targets Fiber v2); per-request HTTP metrics are in `internal/controllers/middleware/otelmetrics.go`.
+- Logs correlate with traces via `logger.NewTraceHandler` in `internal/logger` — every slog record written with an active span context gets `trace_id`/`span_id` attrs.
+
 ## Cursor/Copilot rules
 
 - No Cursor rules found in `.cursor/rules/` or `.cursorrules`.
